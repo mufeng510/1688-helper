@@ -7,7 +7,7 @@
 ## Features
 
 - **SKU change monitoring (fully functional)**: watch all SKUs of products you follow — added/removed SKUs, spec and attribute changes, stock changes, in-stock ↔ out-of-stock, price changes. Scheduled background scans with desktop and/or Webhook notifications; the first scan only establishes a baseline (no noise); a product is auto-paused after 3 consecutive failures; full change history and JSON export.
-- **Late-collection claim automation (framework only)**: the scan → apply pipeline, state machine, dedup, retry (max 3), batch summary notifications and human-in-the-loop are implemented and tested with simulated data. Real claim pages have not been adapted yet (your account currently has no late-collection orders). **No real claim is ever submitted.**
+- **Late-collection claim tasks (read-only, adapted to the real 1688 UI)**: the scan → detect → read-only probe → human-in-the-loop pipeline has been verified end-to-end on a real late-collection order (2026-11-16 dry-run: discovered → deduplicated → "needs manual action" → result read-back "rejected by platform"). The extension **never submits** real claim applications (the platform does not accept it for that order; enabling auto-submit would require your separate authorization and review). State machine, dedup, retry (max 3), batch summary notifications and the human-review channel are implemented and tested with simulated data.
 - **Workbench import (optional module)**: on any 1688 product page, click the floating import button, preview the collected data (name/price/attributes/SKU/images), pick what you want, and import it into your own self-hosted workbench service. If the same offer was already imported, the extension asks you whether to update it or create a new entry.
 - **Data & backup**: all data (orders, products, SKU snapshots, change log, task log, notifications) lives in your browser's IndexedDB; one-click JSON export/import.
 
@@ -21,7 +21,8 @@
 ## Requirements
 
 - You must be logged into 1688 in this browser;
-- Monitoring/import features use your existing session — the extension never bypasses captcha or anti-bot controls (it pauses and asks for manual action instead);
+- Monitoring/claim-detection/import features use your existing session — the extension never bypasses captcha or anti-bot controls (it pauses and asks for manual action instead);
+- The claim module only discovers and tracks late-collection orders (read-only); **it never submits a real claim application**;
 - The "import to workbench" module requires your own self-hosted workbench service (see docs/IMPORT_1688.md).
 
 ## Source

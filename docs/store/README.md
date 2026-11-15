@@ -21,14 +21,14 @@ GitHub 公开 URL（隐私表单 / listing 需要）：
 
 ### 公共前置
 
-- `npm run build`（dist/ 已是 v0.4.0，若改代码需重新 build 再打包）
+- `npm run build`（dist/ 已是 v0.5.0，若改代码需重新 build 再打包）
 - 打包扩展 zip（根为 dist/ 内容，不含外层目录）：
 
 ```bash
-cd dist && zip -r ../1688-helper-v0.4.0.zip . && cd ..
+cd dist && zip -r ../1688-helper-v0.5.0.zip . && cd ..
 ```
 
-（预生成 zip 在 /tmp/opencode/1688-helper-v0.4.0.zip，但请勿提交到 git。）
+（zip 不提交到 git；如需可放 /tmp/opencode/1688-helper-v0.5.0.zip。）
 
 ### Chrome Web Store
 
@@ -48,10 +48,10 @@ cd dist && zip -r ../1688-helper-v0.4.0.zip . && cd ..
 
 ## 版本发布流程（之后每版）
 
-1. 更新 `public/manifest.json` 版本号（semver；当前 0.4.0）并 `npm run build`；
+1. 更新 `public/manifest.json` 版本号（semver；当前 0.5.0）并 `npm run build`；
 2. 更新 zip → 两个商店各提交新版本；
 3. 更新 `docs/store/` 文案中的变更点（listing「版本与更新」段，如需要）；
-4. git 打 tag（如 v0.4.0）便于回溯。
+4. git 打 tag（如 v0.5.0）便于回溯。
 
 ## 尚未完成（需你操作/决定）
 

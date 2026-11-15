@@ -1,6 +1,6 @@
 # 1688 智能助手 — 隐私政策
 
-**最后更新：2026-11-15**
+**最后更新：2026-11-16**
 
 本政策适用于「1688 智能助手」Chrome/Edge 扩展（下称「本扩展」）。本扩展的开发者（下称「开发者」）不运营任何服务器，除扩展本身外不收集、不出售、不出租任何用户数据。
 
@@ -50,7 +50,7 @@ Webhook 与工作台是**你自己拥有和控制的服务**；推送到那些�
 
 # Privacy Policy — 1688 Helper
 
-**Last updated: 2026-11-15**
+**Last updated: 2026-11-16**
 
 This policy covers the "1688 Helper" Chrome/Edge extension (the "Extension"). The developer runs no server and does not collect, sell or rent any user data beyond the Extension itself.
 
