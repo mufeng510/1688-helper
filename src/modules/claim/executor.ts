@@ -1,7 +1,8 @@
 // 理赔申请执行器接口与实现。
 // SimulationExecutor：完全模拟，用于框架验证与自动化测试（数据为虚构，不代表真实 1688 返回）。
-// LiveClaimExecutor：真实页面适配前不执行任何提交；只报告 needs_human，绝不伪造成功。
+// LiveClaimExecutor：真实页面只读探测——识别平台状态后安全返回；绝不点击提交、绝不伪造成功。
 import type { ClaimApplyResult, ClaimOrder } from '@/common/types';
+import { runInBackgroundTab } from '@/background/tab-runner';
 
 export interface ClaimExecutor {
   readonly mode: 'simulation' | 'live';
@@ -39,16 +40,94 @@ export class SimulationExecutor implements ClaimExecutor {
   }
 }
 
-/** 真实执行器：页面未适配前拒绝执行，返回 needs_human。 */
+// ---- 真实执行器（2026-11-15 适配，docs/1688_PAGES.md §7）----
+// 申请页 service-compensation.html?orderId=<订单号> 的真实状态文案（真实实测）：
+//   · 「当前订单存在已申请（或系统自动判定产生）的理赔记录。」→ 已有理赔记录，禁止重复提交
+//   · 「未到承诺发货时间，暂不支持理赔」→ 平台暂不受理
+// 本期行为：打开后台标签 → 只读探测 → 映射为 needs_human（永不提交）。
+// 真实提交必须等（a）平台允许提交的真实场景、（b）用户明确授权、（c）单独评审后启用。
+const COMPENSATION_URL = (orderId: string): string =>
+  `https://air.1688.com/app/ctf-page/compensation/service-compensation.html?orderId=${encodeURIComponent(orderId)}`;
+const PROBE_FILE = 'pages/inject/claim-apply-probe.js';
+
+interface InjectedClaimProbe {
+  ok: boolean;
+  risk?: 'login' | 'baxia';
+  state?: 'has_record' | 'not_yet' | 'form_ready' | 'blocked_unknown';
+  error?: string;
+}
+
+const tabRunFailureText = (error: { kind: string; message?: string }): string => {
+  switch (error.kind) {
+    case 'create_failed':
+      return '后台标签创建失败';
+    case 'load_timeout':
+      return '理赔页面加载超时';
+    case 'frozen':
+      return '后台标签被冻结/丢弃';
+    case 'inject_failed':
+      return `理赔页面采集失败：${error.message ?? ''}`;
+    case 'script_error':
+      return `理赔页面脚本错误：${error.message ?? ''}`;
+    default:
+      return `后台标签执行失败：${error.kind}`;
+  }
+};
+
 export class LiveClaimExecutor implements ClaimExecutor {
   readonly mode = 'live' as const;
 
-  async apply(_order: ClaimOrder): Promise<ClaimApplyResult> {
-    return {
-      kind: 'needs_human',
-      reason: '真实揽收超时订单的申请表单尚未适配（等待真实订单页面验证）。为避免误操作，本次不执行提交。',
-      keepTab: true,
-    };
+  async apply(order: ClaimOrder): Promise<ClaimApplyResult> {
+    const res = await runInBackgroundTab<InjectedClaimProbe>({
+      url: COMPENSATION_URL(order.orderId),
+      injectFile: PROBE_FILE,
+      timeoutMs: 60_000,
+      keepTabOnOutcome: (v) => {
+        const r = v as InjectedClaimProbe | undefined;
+        // 登录失效/风控/真实表单就绪都需人工确认，保留标签页
+        return !r || r.risk !== undefined || !r.ok || r.state === 'form_ready';
+      },
+    });
+    if (!res.ok) {
+      // 页面打不开/超时：有限次自动重试（不涉及提交，安全）
+      return { kind: 'retryable_error', reason: tabRunFailureText(res.error) };
+    }
+    const v = res.value;
+    if (!v) {
+      return { kind: 'retryable_error', reason: '理赔页面未返回有效结果（页面结构可能已变更）' };
+    }
+    if (v.risk === 'login') {
+      return { kind: 'needs_human', reason: '检测到 1688 登录失效，请重新登录后人工处理', keepTab: true };
+    }
+    if (v.risk === 'baxia') {
+      return { kind: 'needs_human', reason: '检测到可见的风控/验证码界面，请人工处理（标签页已保留）', keepTab: true };
+    }
+    if (!v.ok) {
+      return { kind: 'retryable_error', reason: v.error ?? '理赔页面采集失败' };
+    }
+    switch (v.state) {
+      case 'has_record':
+        return {
+          kind: 'needs_human',
+          reason: '平台提示该订单已存在理赔记录（或系统自动判定产生），禁止重复申请；请人工核对「我申请的理赔」',
+        };
+      case 'not_yet':
+        return {
+          kind: 'needs_human',
+          reason: '平台提示未到承诺发货时间，暂不支持理赔；发货承诺到期后再由人工处理',
+        };
+      case 'form_ready':
+        return {
+          kind: 'needs_human',
+          reason: '真实理赔申请表单已就绪，但真实提交未启用（须人工确认）；本次未执行提交',
+          keepTab: true,
+        };
+      default:
+        return {
+          kind: 'retryable_error',
+          reason: '无法识别理赔页面状态（页面结构可能已变更），禁止提交，等待人工核对',
+        };
+    }
   }
 }
 

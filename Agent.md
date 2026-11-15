@@ -7,7 +7,7 @@
 
 个人自用 Chrome 扩展（Manifest V3），三大模块：
 
-- **模块 A（揽收超时自动理赔）**：扫描揽收超时订单 → 自动申请理赔。**当前无真实揽收超时订单**，真实页面适配全部预留，模拟环境与真实环境严格区分，严禁伪造真实理赔成功。
+- **模块 A（揽收超时自动理赔）**：扫描揽收超时订单 → 自动申请理赔。2026-11-15 真实订单已出现（本机 Edge 另一买家账号，见 `docs/1688_PAGES.md` §7）：live 发现/探测/结果回读已适配；本期真实提交一律不执行（LiveClaimExecutor 只读探测映射 `needs_human`）。端到端干跑已验证（2026-11-16）：发现 1 笔 → 去重入队 → 只读探测 `has_record` → `needs_human` → 结果回读 → `resultStatus=rejected`；重扫不重复入队。
 - **模块 B（SKU 变化监控）**：完整交付的核心功能。全量 SKU 新增/删除/规格/属性/库存/价格变化监控，快照 diff，桌面+Webhook 通知。
 - **模块 D（1688 商品导入工作台，2026-11-15 新增，v0.4.0）**：商品页一键采集 → 工作台预览（ingest）→ 确认卡片 → 入库（execute）。增量功能，不改动既有模块。**端到端已真实验证（2026-11-15，调试实例 127.0.0.1:8081，见 `docs/IMPORT_1688.md`「端到端验证」）**；v0.4.0 增加重复导入防护（by-offer 检查 + 卡片已存在横幅/更新-新建单选 + execute `mode`/`allow_duplicate`），工作台侧契约已交付，实现待升级（见 `docs/IMPORT_1688.md`「重复导入防护」）。
 - **模块 C（HTML 采集）**：仅预留模块边界，不实现推送，不假设用户自建网站 API。
@@ -31,17 +31,17 @@
 - TypeScript strict + Vite，零运行时框架；IndexedDB；chrome.alarms/tabs/scripting/notifications；`chrome.storage.local`（配置）。
 - `src/background/`：`sw.ts`（入口）、`scheduler.ts`（tick/队列调度）、`tab-runner.ts`（后台标签）、`router.ts`（消息路由）。
 - `src/modules/sku/`：采集（`skuModel.ts` 内联 JSON 解析）、`completeness.ts`（完整性校验）、`compare.ts`（diff）、`monitor.ts`（编排）、`products.ts`、`actions.ts`。
-- `src/modules/claim/`：`source.ts`（订单发现；Simulation/Live）、`executor.ts`（申请执行器；Simulation/Live=needs_human 拒绝执行）、`stateMachine.ts`、`claim.ts`。
+- `src/modules/claim/`：`source.ts`（订单发现；Simulation/Live=后台标签 + **两阶段注入**：Phase A 导航 `tradeStatus=CTMO`，Phase B 轮询提取）、`executor.ts`（申请执行器；Simulation/Live=只读探测，needs_human 拒绝执行）、`stateMachine.ts`、`claim.ts`、`discovery.ts`（采集结果映射，纯函数）、`resultMapping.ts`（理赔状态文本→resultStatus，纯函数）、`resultSync.ts`（「我申请的理赔」回读→resultStatus/金额补缺）。
 - `src/modules/import1688/`（模块 D）：`payload.ts`（纯逻辑，可单测）、`settings.ts`（独立 storage key `import1688`）、`client.ts`（SW fetch + 错误映射）、`collect.ts`（MAIN world 读 window.context/outerHTML）、`service.ts`、`types.ts`。
-- `src/pages/`：`inject/sku-collector.ts`（自包含注入脚本，SW 侧解析）、`inject/import-1688.ts`（模块 D content script，**classic script 必须自包含**）、`popup/`（加监控）、`manage/`（管理页：总览/理赔/SKU/任务/设置/日志/数据与备份）。
-- 构建：`vite.config.ts`（主构建，`emptyOutDir`）+ `vite.content.config.ts`（模块 D content script 单独打包，**必须在主构建后运行**）。
-- `tests/`：Vitest + fake-indexeddb（83 用例全过）。
+- `src/pages/`：`inject/sku-collector.ts`（自包含注入脚本，SW 侧解析）、`inject/import-1688.ts`（模块 D content script，**classic script 必须自包含**）、`inject/claim-finder.ts`（模块 A Phase A：把列表 iframe 导航到 CTMO 视图，自包含）、`inject/claim-collector.ts`（模块 A Phase B：CTMO 视图订单提取，shadow DOM 穿透，自包含）、`inject/claim-apply-probe.ts`（模块 A 申请页只读探测，自包含）、`inject/claim-result-list.ts`（模块 A 结果回读，自包含）、`popup/`（加监控）、`manage/`（管理页：总览/理赔/SKU/任务/设置/日志/数据与备份）。
+- 构建：`vite.config.ts`（主构建，`emptyOutDir`）+ `vite.content.config.ts`（模块 D content script 单独打包，**必须在主构建后运行**）。`tab-runner.ts` 导出 `runInBackgroundTab`（后台标签采集）、`injectIntoTab`/`waitForComplete`（两阶段注入复用；`allFrames` 注入后取「第一个非 null/undefined frame 结果」——跨进程传输下「无返回值」的 frame 序列化为 null，2026-11-16 修复）。
+- `tests/`：Vitest + fake-indexeddb（94 用例全过）。
 
 ## 4. 构建/安装/测试
 
 ```bash
 npm run typecheck   # tsc --noEmit
-npm test            # vitest run（83 用例）
+npm test            # vitest run（94 用例）
 npm run build       # tsc + vite build（主）+ vite -c vite.content.config.ts（模块 D content script，须最后跑）
 npm run build:content  # 仅重打 content script（改 import-1688.ts 时够用，但它引用 payload.ts 变更需一起确认）
 ```
@@ -56,6 +56,8 @@ npm run build:content  # 仅重打 content script（改 import-1688.ts 时够用
 - [x] 管理界面（总览/理赔/SKU 监控/任务/设置/日志/数据与备份）与 popup。
 - [x] SKU 模块：添加（popup/管理页）、列表/暂停/恢复/立即扫描/详情（SKU 当前状态、历史变化、历史快照）、基准规则、完整性校验、连续失败自动暂停并通知、通知聚合与去重。
 - [x] 理赔模块（框架）：订单扫描框架、去重（orderId 唯一索引）、状态机（待申请→申请中→成功/失败/平台处理中/已完成/需要人工）、重试 ≤3 次、中断恢复、模拟执行器、批次汇总通知；`LiveOrderSource`/`LiveClaimExecutor` 明确返回空/needs_human，绝不伪造成功。
+- [x] **模块 A 端到端干跑验证通过（2026-11-16，该 Edge + v0.5.0）**：两阶段注入修复了「揽收超时入口实为 hover tooltip（`q-tooltip-content.tabs-tooltip`）、点击后 iframe 整页导航到 `tradeStatus=CTMO`、原地轮询永远超时」的问题；并修复 `allFrames` 注入结果跨进程序列化后「空 frame 返回 null 而非 undefined」导致真实 CTMO 结果（ordersLen=1）被 `find(v !== undefined)` 跳过的问题。管理页「立即扫描」实测：发现 1 笔揽收超时订单 → 去重入队 → executor 只读探测 `has_record` → `needs_human`（平台提示该单已存在理赔记录，禁止重复申请）→ 结果回读（「我申请的理赔」15 条，其中该单「理赔失败」→ `resultStatus=rejected`，`checked:15, updated:1`）→ 列表显示「平台驳回」+ 桌面通知到达（发现 1 / 等待人工处理 1）；**再次扫描发现 0 笔、不重复入队**。全程未提交任何真实理赔。94/94 单测、typecheck 全绿。
+- [x] **模块 A live 适配（2026-11-15，v0.5.0）**：本机 Edge 另一买家账号出现 1 笔揽收超时订单（「待收货」下拉 →「揽收超时」）。已实现并构建（dist v0.5.0）：live 发现（后台标签 + 全 frame 注入，点「待收货」→「揽收超时」，等刷新，shadow DOM 提取，与「共N条」交叉校验，防止把未过滤订单误读为揽收超时）、申请页只读探测（`has_record`/`not_yet`/`form_ready`/`blocked_unknown` → 一律 needs_human，**绝不提交**）、「我申请的理赔」结果回读（`resultSync.ts`，状态→resultStatus；金额只补缺不覆盖）；登录失效/风控桌面通知（`exception.login`/`exception.risk`，forceDesktop）。94/94 单测、typecheck 全绿；docs/1688_PAGES.md §7 已记录页面结构（无隐私）。**真实提交仍然禁止**；端到端（该 Edge 手动加载扩展后的发现→入队→needs_human→回读）待用户手动加载后验证。
 - [x] **真实页面验证（2026-11-15）**：真实商品页实采（offerId 991485897552）成功：首次建基准（11 SKU，`matchedBy: skuId`），二次扫描 `changes: 0`；后台标签不抢焦点；连续失败计数成功清零；stale CSP 错误已清除。
 - [x] 风控误判修复（见 §7 已知问题 #1）。
 - [x] 通知双通道 e2e：Webhook 本地接收端收到扩展 SW 的 POST（payload 正确；发现 ambient Cookie 泄露，已修复 `credentials:'omit'` 并复测无 Cookie）；桌面通知在真实浏览器触发（notificationLog：`claim.found`/desktop/sent）。
@@ -66,7 +68,7 @@ npm run build:content  # 仅重打 content script（改 import-1688.ts 时够用
 
 ## 6. 未完成 / 待办
 
-- [ ] 真实揽收超时订单适配（全部依赖真实订单，见 `docs/PLAN.md` §4、`docs/1688_PAGES.md` §6）：「待收货」下拉 →「揽收超时」筛选控件参数、「去申请理赔」按钮 DOM、提交成功识别、理赔结果回读。
+- [x] ~~真实揽收超时订单适配~~ → 已完成并端到端干跑验证（2026-11-16，见 §5）：live 发现（两阶段 CTMO 注入）→ 去重 → needs_human（已有理赔记录）→ 结果回读 rejected；重扫不重复入队。真实提交成功识别本期不做（需平台可提交场景 + 用户授权 + 单独评审）。
 - [ ] 真实 SKU 变化验证：目前真实对比仅跑到 `changes: 0`；真实库存/价格变化路径待线上变化发生时观察（比较逻辑已有 13+ 项单测覆盖）。
 - [ ] 真实通知送达验证：Webhook/桌面双通道机制已通（本地接收端收到 SW POST；notificationLog 见 desktop/claim.found/sent），但未向用户自己的接收端送达过一条真实 SKU 变化通知。
 - [x] 浏览器重启恢复已实测（2026-11-15 电脑重启）：SW 自动启动（13:58），alarm 补建，SKU 扫描（13:59）与理赔扫描自动执行，数据/日志（52 条）全部持久，用户标签无干扰。SW 回收恢复有单测覆盖，真实回收过程无法直接观察。
@@ -85,38 +87,45 @@ npm run build:content  # 仅重打 content script（改 import-1688.ts 时够用
 3. **监控列表商品图标显示「裂图」**：`og:image` 记录的图片地址疑似防盗链/已失效，`onerror` 已优雅隐藏；待验证可用 URL（如 cbu01.alicdn.com 带 referer 的图）后再修。
 4. **Chrome 自动化限制**：computer-use 鼠标坐标点击无效（auto 走 AT-SPI accessibility，无元素索引时不落点）；xdotool（XTest 真实事件，DISPLAY=:0）鼠标点击有效；键盘 Tab/Enter 与 scrot 截图可用。注意 computer-use 超时后改走 xdotool 最稳。
 5. 浏览器的「Custom New Tab」（v1.11）把新标签页重定向到 `index.yq59.top`——**用户已确认可信**（2026-11-15 用户确认）。
-6. 1688 订单列表「揽收超时」无真实订单，live claim 全部路径未实测。
+6. ~~1688 订单列表「揽收超时」无真实订单~~（2026-11-15 已出现 1 笔，本机 Edge 另一账号）：live 路径已适配并**端到端干跑验证通过**（2026-11-16，见 §5）。
 7. Service Worker 回收恢复机制仅有单测（`recoverStaleTasks`），未在真实浏览器观察到 SW 回收过程。
 8. **Webhook 泄露 ambient Cookie（已修复）**：SW 的 `fetch` 默认携带环境 Cookie（实测接收端看到 `oc_ui_session_...`）。修复：`sendNotification`/`testWebhook` 均加 `credentials:'omit'`，复测请求无 Cookie。教训：webhook 不该带任何 ambient 凭证。
 9. 桌面通知 e2e 真实触发：notificationLog 捕获 `claim.found`（desktop/sent，10:57 模拟模式发现 6 笔揽收超时），证明桌面通道在真实浏览器可用。
 10. 临时隔离实例验证（2026-11-15）：Google Chrome 生产版**忽略** `--load-extension`（日志 `--load-extension is not allowed in Google Chrome`），只能走 GUI「加载未打包」；临时实例两次被用户关闭，已删除（`/tmp/opencode/e2e-profile*`，各 153MB）。
 11. **MV3 content_scripts 是 classic script**：不能引用 vite 代码分割的 ESM chunk（Chrome SyntaxError）。模块 D 的 content script 用 `vite.content.config.ts` 单独打包为自包含文件，且必须在主构建（`emptyOutDir`）之后执行；曾把 import 留在 content script 里，产物直接不可用。
 12. **chrome://extensions 的 ↻ 重新加载按钮坐标别靠猜**（1920×1080 下 ≈ (732, 537)，以卡片「详情/移除」同一行为准）；连续两次点空（y 偏高）导致「SW 似乎没更新」的误判——实际是扩展从未被重载。验证加载的是否新版本：看卡片版本号（0.1.0→0.2.0 只在重载后变化）。
-13. **2026-11-15 用户 Chrome 两次自行消失**（14:23、14:31，均在我 GUI 自动化期间；原因未知，可能是用户介入或 Chrome 崩溃）。教训：不要无人值守 GUI 自动化用户正在用的浏览器；交付可实测步骤让用户自己点，或事先获得明确许可。另：每次全新启动 Chrome 都会弹「要恢复页面吗？」，不替用户点「恢复」。
-
-13. **工作台不按 offer_id 去重（实测 2026-11-15）**：同一 offer 重复导入会创建重复商品（调试实例内 offer 991485897552 共 4 件：id 2/4/5/6）。扩展「确认导入」有 `submitting` 防重锁，id 5/6 为用户两次独立操作所致，非扩展 bug。若需要去重，应由工作台侧实现（扩展侧不做干预）；使用前确认预期行为。
-14. **匿名 `{html}` ingest 422（实测）**：工作台 ingest 的 html 路径无法解析 1688 内嵌 JS 字面量（含未加引号数字键），返回 422。扩展真实链路走 `window.context` + JSON.stringify，不受影响；不要为「HTML 兜底」路径做额外适配，除非工作台侧增强解析。
+13. ~~揽收超时下拉是 toggle 语义~~（2026-11-16 实证推翻）：「揽收超时」是「待收货」Tab 的 **hover tooltip**（`q-tooltip-content.tabs-tooltip` 常驻 DOM、`display:none`、quark 渲染）里的 `.tooltip-tab`（`data-tracker` 尾缀 `_CTMO`，计数 1）。**点击后订单列表 iframe 整页导航到 `buyer-order-list.html?…&tradeStatus=CTMO&page=1`**，注入脚本上下文销毁——原地轮询必然超时（11-15/16 多轮「未采集到任何 frame 结果」即因此）。修复：两阶段注入（Phase A `location.assign` 改写 `tradeStatus`/`page` 触发导航；Phase B 轮询读 CTMO 视图，`「共 N 条」` 交叉校验保留）。
+14. **AI 订单巡检横幅「N 笔揽收超时」与筛选 CTMO 结果数不一致**（曾见 3 笔 vs 1 笔），原因未确认；不以此数据做任何自动化决策。
+21. **allFrames 注入结果序列化坑（2026-11-16 修复）**：`scripting.executeScript` 的 allFrames 结果中，「无返回值」的 frame 传回 SW 后是 `null`（不是 `undefined`）。`find(v => v !== undefined)` 会选中 null（顶层 frame），CTMO 真实结果（ordersLen=1）被当作「没有 frame 输出」。修复：`injectIntoTab` 取第一个 `v != null`；诊断日志 `type` 区分 null/undefined。**教训：跨进程序列化不保留 undefined，判空一律 `v != null`。**
+15. **订单行内无订单总额**（仅单价/数量）；订单金额只能从「我申请的理赔」列表回读补缺（`resultSync`，只补缺不覆盖）。
+16. **两次 browse 驱动的额外标签页被用户关闭**（订单详情/理赔申请页/理赔列表），且会话默认页被替换为 about:blank——用户在该 Edge 里主动清理标签页；Agent 自行打开的标签页用完即关，勿依赖其存活。
+17. **真实订单已有理赔记录且平台暂不受理手动申请**（理赔申请页显示「未到承诺发货时间，暂不支持理赔」+「当前订单存在已申请的理赔记录」）。LiveClaimExecutor 因此只读探测并一律返回 needs_human；**不存在可自动提交的真实场景，提交成功识别未经验证，任何版本不得擅自启用自动提交。**
+18. **2026-11-15 用户 Chrome 两次自行消失**（14:23、14:31，均在我 GUI 自动化期间；原因未知，可能是用户介入或 Chrome 崩溃）。教训：不要无人值守 GUI 自动化用户正在用的浏览器；交付可实测步骤让用户自己点，或事先获得明确许可。另：每次全新启动 Chrome 都会弹「要恢复页面吗？」，不替用户点「恢复」。
+19. **工作台不按 offer_id 去重（实测 2026-11-15）**：同一 offer 重复导入会创建重复商品（调试实例内 offer 991485897552 共 4 件：id 2/4/5/6）。扩展「确认导入」有 `submitting` 防重锁，id 5/6 为用户两次独立操作所致，非扩展 bug。若需要去重，应由工作台侧实现（扩展侧不做干预）；使用前确认预期行为。
+20. **匿名 `{html}` ingest 422（实测）**：工作台 ingest 的 html 路径无法解析 1688 内嵌 JS 字面量（含未加引号数字键），返回 422。扩展真实链路走 `window.context` + JSON.stringify，不受影响；不要为「HTML 兜底」路径做额外适配，除非工作台侧增强解析。
 
 ## 8. 用户环境事实
 
-- Debian 13，用户 Chrome（已登录 1688 买家账号），1688 买家工作台：`https://work.1688.com/home/buyer.htm?_path_=buyer2017Base/2017buyerbase_trade/buyList`
+- Debian 13，用户 Chrome（已登录 1688 买家账号①），1688 买家工作台：`https://work.1688.com/home/buyer.htm?_path_=buyer2017Base/2017buyerbase_trade/buyList`
+- 本机 Edge（MiWiFi-RA72-srv；browse 扩展已连接，账号②，与 Chrome 账号不同，2026-11-15）：该账号工作台「待收货」下拉 →「揽收超时」有 1 笔订单（48h 发货承诺、卖家约定；订单已含平台理赔记录，申请页「未到承诺发货时间，暂不支持理赔」）。**该 Edge 已加载 1688-helper 扩展（v0.5.0 起，2026-11-16 端到端验证期间多次手动重载）**。
 - 本地调试工作台（模块 D 验证用，**一次性**）：Base URL `http://127.0.0.1:8081`；启动 `docker compose -f /tmp/opencode/ext-debug-compose.yaml up -d`；清空 `... down -v`；数据目录 `/tmp/opencode/ext-debug-data`（不入库）；连接信息 `/tmp/opencode/ext-debug.json`（含 manage Token「ext-debug-import-test-2」，**勿入库/勿粘贴到聊天**）。AI 服务商未配置，`/api/health` 常态 `degraded` 属正常。
-- 真实揽收超时订单：**无**（2026-11-15，「待收货」下拉中「揽收超时」为空）。
-- 「揽收超时」入口（2026-11-15 截图确认）：订单列表 →「待收货」下拉 →「正常待收 127 / 揽收超时」。
+- ~~真实揽收超时订单：无~~ → 已有 1 笔（账号②，Edge），见上。
+- 「揽收超时」入口（2026-11-15 截图确认）：订单列表 →「待收货」下拉 →「正常待收 N / 揽收超时 M」。
 - 商品页结构见 `docs/1688_PAGES.md`；内联 JSON（`window.contextPath` 脚本）是首选解析源，DOM 行兜底。
 
 ## 9. 测试记录
 
-- 单测：`npm test` → 83/83 通过（原有 compare/完整性/状态机/队列/去重/理赔流程/连续失败暂停/备份往返 + import1688 模块用例）。
+- 单测：`npm test` → 94/94 通过（原有 compare/完整性/状态机/队列/去重/理赔流程/连续失败暂停/备份往返 + import1688 模块用例 + 新增 claim-discovery/claim-result-mapping 纯函数用例）。
 - 真实实采：见 §5 及 `docs/1688_PAGES.md` §6（首次建基准 → 二次对比 `changes: 0`）。
 - 模块 D e2e（2026-11-15）：ingest 200（context，104 KB 真实页面数据）→ preview 字段齐全；execute 200（API 构建 product id=4；扩展 UI 用户点按 product id=5/6，12 图本地 `/api/media/N/raw`，sha256 去重）；502 图片 404 整体回滚（product 计数不变）；400 白名单 / 422 offer_id pattern / 401 撤销 Token / 媒体无 Token 401 均复测；https 商品页 → http 回环工作台导入成功。详见 `docs/IMPORT_1688.md` 与 `docs/TEST_REPORT.md` §6。
 - 通知 e2e：Webhook（本地接收端收到 POST，payload 正确；修复 credentials 后无 Cookie）；桌面（notificationLog: claim.found/desktop/sent）。
 - 备份导出：32KB JSON，全 store 齐全、可用（见 `docs/TEST_REPORT.md`）。
-- 理赔：仅模拟模式（`claimMode: simulation`）跑通扫描→去重→申请→重试→通知；**无任何真实理赔被执行或伪造**。
+- 理赔：模拟模式跑通扫描→去重→申请→重试→通知；**live 模式端到端干跑验证通过（2026-11-16，该 Edge）**：发现 1 笔 → 去重入队 → 只读探测 `has_record` → `needs_human`（平台：该单已存在理赔记录，禁止重复申请）→ 结果回读 `rejected`（checked:15, updated:1，列表显示「平台驳回」）→ 重扫 0 发现不重复入队 → 桌面通知到达（发现 1/待人工 1）。**无任何真实理赔被执行或伪造**。
 - 完整报告：`docs/TEST_REPORT.md`
 
 ## 10. 后续开发提示
 
 - 改 `sku-collector.ts` 后直接 `npm run build` 即可生效（注入时从磁盘读）；改 SW/页面代码后需在 chrome://extensions 重载扩展。
-- 接真实揽收超时订单时：先 `scrot` 截图存证结构 → 更新 `docs/1688_PAGES.md` → 改 `LiveOrderSource`/`LiveClaimExecutor` → 保留「needs_human」兜底，绝不提交未经验证的真实理赔。
+- 接真实揽收超时订单时：先 `scrot` 截图存证结构 → 更新 `docs/1688_PAGES.md` → 改 `LiveOrderSource`/`LiveClaimExecutor` → 保留「needs_human」兜底。**本期的安全基线：LiveClaimExecutor 只读探测，不提交真实理赔；提交成功识别未经验证，启用前必须单独评审 + 用户明确授权 + 平台确有可提交场景。**
+- 模块 A 端到端干跑步骤（已验证，2026-11-16）：管理页 → 理赔 → 「立即扫描」→ 观察 发现 1 笔 → 入队 → 执行后「需要人工处理」(已有理赔记录) → 结果回读把 `resultStatus` 同步为 已驳回（该单已理赔失败）→ 再扫描验证不重复入队。登录失效应触发桌面通知 `exception.login`。**注意：发现链为两阶段 CTMO 注入（`claim-finder` 改写 URL 导航 → `claim-collector` 在 CTMO 视图提取），不要改回「点击 + 原地轮询」**。
 - 任何「页面结构变化」一律报告适配问题，不得静默产生错误数据（taskbook §十三）。

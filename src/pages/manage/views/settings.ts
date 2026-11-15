@@ -37,10 +37,10 @@ export const renderSettings = async (container: HTMLElement): Promise<void> => {
       <label class="field"><span>理赔模式</span>
         <select id="claimMode">
           <option value="simulation" ${settings.claimMode === 'simulation' ? 'selected' : ''}>模拟模式（虚构订单，验证框架用）</option>
-          <option value="live" ${settings.claimMode === 'live' ? 'selected' : ''}>真实模式（揽收超时页面尚未适配，不会提交申请）</option>
+          <option value="live" ${settings.claimMode === 'live' ? 'selected' : ''}>真实模式（揽收超时只读适配；不提交申请）</option>
         </select>
       </label>
-      <p class="hint">真实模式需在真实揽收超时订单出现并完成页面适配后方可使用。切换不涉及任何真实提交。</p>
+      <p class="hint">真实模式：已完成揽收超时「只读」适配（扫描发现 + 平台状态探测 + 理赔结果回读），不会提交任何真实理赔。真实提交需另行评审。</p>
     </div>
 
     <div class="card">
@@ -214,7 +214,7 @@ export const renderSettings = async (container: HTMLElement): Promise<void> => {
     };
     const mode = $<HTMLSelectElement>('#claimMode').value;
     if (mode === 'live' && settings.claimMode !== 'live') {
-      if (!confirmDanger('切换到「真实模式」：揽收超时页面尚未适配，不会发现真实订单、不会提交任何申请。确定切换？')) {
+      if (!confirmDanger('切换到「真实模式」：扫描将真实打开工作台并筛选「揽收超时」订单；申请页仅探测平台状态，不会提交任何理赔。确定切换？')) {
         $<HTMLSelectElement>('#claimMode').value = 'simulation';
         return;
       }

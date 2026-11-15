@@ -17,6 +17,10 @@ export default defineConfig({
         'pages/manage/manage': resolve(__dirname, 'src/pages/manage/manage.html'),
         'pages/popup/popup': resolve(__dirname, 'src/pages/popup/popup.html'),
         'pages/inject/sku-collector': resolve(__dirname, 'src/pages/inject/sku-collector.ts'),
+        'pages/inject/claim-finder': resolve(__dirname, 'src/pages/inject/claim-finder.ts'),
+        'pages/inject/claim-collector': resolve(__dirname, 'src/pages/inject/claim-collector.ts'),
+        'pages/inject/claim-apply-probe': resolve(__dirname, 'src/pages/inject/claim-apply-probe.ts'),
+        'pages/inject/claim-result-list': resolve(__dirname, 'src/pages/inject/claim-result-list.ts'),
       },
       output: {
         entryFileNames: '[name].js',

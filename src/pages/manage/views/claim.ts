@@ -65,7 +65,7 @@ export const renderClaim = async (container: HTMLElement): Promise<void> => {
     container.innerHTML = `
       <h1 class="page-title">理赔管理</h1>
       <div class="page-sub">揽收超时订单理赔跟踪。申请提交状态与最终理赔结果分开记录：申请成功 ≠ 理赔到账。</div>
-      ${settings.claimMode === 'simulation' ? '<div class="info-box">当前为<strong>模拟模式</strong>：所有订单与申请均为虚构数据，仅用于验证框架；不会产生真实理赔申请。请在「系统设置 → 理赔模式」确认真实页面适配后再切换。</div>' : '<div class="warn-box">当前为<strong>真实模式</strong>：揽收超时筛选与「去申请理赔」页面尚未适配，扫描不会发现真实订单，申请不会被提交。</div>'}
+      ${settings.claimMode === 'simulation' ? '<div class="info-box">当前为<strong>模拟模式</strong>：所有订单与申请均为虚构数据，仅用于验证框架；不会产生真实理赔申请。请在「系统设置 → 理赔模式」确认真实页面适配后再切换。</div>' : '<div class="warn-box">当前为<strong>真实模式</strong>：扫描会后台打开工作台并筛选「揽收超时」订单（只读）；申请页仅探测平台状态，<strong>不会提交任何理赔</strong>，需要人工处理时标记「需要人工处理」。</div>'}
       <div class="card">
         <div class="row">
           <h2 style="margin:0">我申请的理赔 ${modeBadge}</h2>

@@ -15,6 +15,7 @@ import { getSettings } from '@/common/settings';
 import type { ClaimApplyResult, ClaimBatch, ClaimOrder } from '@/common/types';
 import { createExecutor } from './executor';
 import { createOrderSource } from './source';
+import { syncClaimResults } from './resultSync';
 import { isTerminal, nextApplyStatus } from './stateMachine';
 
 const log = logger('claim');
@@ -138,6 +139,14 @@ export const applyClaimOrder = async (claimId: string): Promise<{ ok: boolean; n
   if (result.kind === 'needs_human' || result.kind === 'unknown') {
     if (result.kind === 'unknown') {
       await log.warn('理赔提交结果不确认，需人工在「发起的理赔」页核对', { orderId: order.orderId });
+    }
+    // live 模式：平台该订单很可能已有理赔记录（如系统自动判定），顺便回读结果页同步本地 resultStatus（best-effort）
+    if (settings.claimMode === 'live') {
+      try {
+        await syncClaimResults();
+      } catch (err) {
+        await log.warn('理赔结果回读触发失败', err instanceof Error ? err.message : String(err));
+      }
     }
     return { ok: true, needsHuman: true, reason: result.reason };
   }

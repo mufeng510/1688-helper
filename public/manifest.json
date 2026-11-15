@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "1688 智能助手",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "1688 买家侧辅助工具：监控商品 SKU 变化并通知；揽收超时自动理赔（框架）。个人自用，依赖当前浏览器已登录的 1688 账号。",
   "minimum_chrome_version": "120",
   "icons": {

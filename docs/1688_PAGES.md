@@ -74,3 +74,43 @@
 - 根因：采集器把「页面 HTML 中出现 baxia 字样 + 存在 baxia 相关 DOM 节点」判定为风控；而 1688 商品页**始终**嵌入 baxia 反爬脚本与隐藏验证码容器，导致 100% 误判。
 - 修复（src/pages/inject/sku-collector.ts）：只有**可见**的验证/拦截界面（`getBoundingClientRect` 有尺寸且非 display:none/visibility:hidden/opacity:0）、或 URL 为 punish/verify/captcha、或标题含「验证码/安全验证/滑块验证」时，才判定为风控。
 - 验证：修复后同一商品扫描成功（见上）。**教训：风控识别必须基于「可见的拦截界面」，不能基于页面是否包含反爬脚本。**
+
+## 7. 真实揽收超时订单实测（2026-11-15，另一买家账号）
+
+环境：本机 Edge 浏览器（browse 扩展连接，账号已登录 1688 买家工作台，账号与用户 Chrome 不同）。页面操作均为**筛选与只读**；未点击任何提交/支付按钮。隐私（订单号、收货地址、手机号、支付宝交易号、金额）不写入本文档。
+
+### 7.1 「揽收超时」入口 — 控件实测（2026-11-15 初识别 → 2026-11-16 实证复核）
+
+- 位置：订单列表顶部「待收货 104」Tab（`.tab-sub-item`，Lit + shadow DOM）。
+- **2026-11-16 实证**：「揽收超时」并不是点击「待收货」Tab 后的原地下拉，而是 `q-tooltip-content.tabs-tooltip`（常驻 DOM、`display:none`，quark hover tooltip）中的第二个 `.tooltip-tab`：`data-tracker` 尾缀 `_CTMO`，内含 `.tooltip-tab-text`=「揽收超时」+ `.tab-title-num`=计数（1）。另一项为「正常待收 N」（`_receiveGoodsNormal`）。
+- **点击「揽收超时」会让订单列表 iframe 整页导航**到 `buyer-order-list.html?…&tradeStatus=CTMO&page=1&pageSize=…`——注入脚本的上下文随之销毁，**原地轮询必然失败**（2026-11-15/16 多轮扫描均报「未采集到任何 frame 结果」）。
+- 扩展发现链（v0.5.0 重做）为**两阶段注入**：后台标签 → settle 12s → Phase A（`claim-finder.js`，所有 frame 注入）在列表 frame 里把 `tradeStatus` 参数置 `CTMO`、`page` 置 `1` 后 `location.assign`；Phase B（`claim-collector.js` 轮询，最多 ~18s）仅在 CTMO 视图提取，不做任何点击。非目标 frame 返回 `undefined`，跨进程传输后为 `null`，`injectIntoTab` 取「第一个非 null/undefined 的 frame 结果」。
+- 渲染结构（筛选 CTMO 后，实测）：
+  - 订单级：`.order-item-header`（`copy-to-clipboard` 元素 `text` 属性 = 订单号；`q-checkbox[data-tracker-args="orderId=..."]` 亦含订单号；`.order-time` 含下单时间）。
+  - 商品级：`.order-item-entry`（`order-item-entry-product` 内商品链接 = 商品名；「颜色/尺码」叶子 = 规格；「理赔中」标记）。
+  - 卖家：公司类后缀（有限公司/制衣厂…）链接文本，best-effort。
+  - 页脚：「共 N 条」可与解析条数交叉校验；不一致即视为页面结构变更，**拒绝产出**。
+- **列表渲染与计数交叉校验保留**：提取后页脚「共 N 条」与解析条数不一致即拒绝产出。CTMO 视图即「揽收超时」过滤结果，无需再与全量集合比对。
+- 备注：AI 订单巡检横幅「N 笔揽收超时」（曾见 3 笔）与筛选 CTMO 结果数（1 笔）不一致，原因未确认；不以此数据做自动化决策。
+
+### 7.2 理赔申请页（「去申请理赔 / 申请理赔」入口）
+
+- 入口：订单详情页底部「48小时发货 订单承诺限时发货，延迟可理赔 **申请理赔**」，链接 `https://air.1688.com/app/ctf-page/compensation/service-compensation.html?orderId=<订单号>`。
+- 该订单真实打开后页面文案（本次实测）：
+  - 顶部提示条：「当前订单存在已申请（或系统自动判定产生）的理赔记录。点击查看」
+  - 主区域：「未到承诺发货时间，暂不支持理赔」
+  - 即**平台当前不受理手动申请**（48h 承诺时间未到），且该单已有理赔记录。
+- 结论：`LiveClaimExecutor` 只做只读探测（has_record / not_yet / form_ready / blocked_unknown），一律映射为 `needs_human`；**绝不自动提交真实理赔**。
+
+### 7.3 「我申请的理赔」列表（理赔结果回读数据源）
+
+- 入口：work.1688.com `compensationBuyerList` → iframe `https://bao.1688.com/service/compensation/compensation_buyer_list.htm`（可直接打开，普通 `<table>`，9 列：理赔编号 | 订单编号 | 申请时间 | 卖家 | 订单金额（元） | 申请理赔金额（元） | 放款方式 | 状态 | 操作）。
+- 状态列实测值：`理赔成功` / `理赔失败`（该订单 2026-11-15 申请、理赔失败、平台提示客服介入；同页另有 14 笔「理赔成功」）。
+- 列表含 `订单金额` / `申请理赔金额`，可用于本地金额字段补缺（只补缺，不覆盖）。
+- `resultSync.ts` 打开该页注入 `claim-result-list.js`，按 orderId 匹配本地记录更新 `resultStatus`：成功→`paid`，失败→`rejected`，处理/审核/介入→`processing`，未识别→`unknown`（绝不猜测）。
+
+### 7.4 架构影响
+
+1. 模块 A live 发现链 = **两阶段注入**（后台标签 → Phase A 导航 `tradeStatus=CTMO` → Phase B 轮询提取，非目标 frame 返回 null/空值被跳过）。其余 frame 不干活（返回空/风控壳）。
+2. 验收口径：发现→去重→入队→executor 只读探测→`needs_human`/`rejected`→结果回读，全程不提交。**任何「真实提交」必须等平台可提交的真实场景 + 用户明确授权 + 单独评审。**
+3. **端到端干跑已验证（2026-11-16，该 Edge + 1688-helper v0.5.0）**：扫描发现该笔揽收超时订单 → 去重入队（`claim.apply`）→ 只读探测 `has_record` → `needs_human`（禁止重复申请）→ 结果回读（「我申请的理赔」15 条中其一状态「理赔失败」→ `resultStatus=rejected`，`checked:15, updated:1`）→ 列表展示「平台驳回」；**再次扫描发现 0 笔、不重复入队**。全程未提交任何真实理赔。
