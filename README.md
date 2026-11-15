@@ -49,7 +49,7 @@
 
 ```bash
 npm run typecheck   # tsc --noEmit
-npm test            # Vitest，34 个用例
+npm test            # Vitest，46 个用例
 npm run build       # 类型检查 + 构建到 dist/
 npm run dev         # vite build --watch
 ```

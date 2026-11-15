@@ -32,13 +32,13 @@
 - `src/modules/sku/`：采集（`skuModel.ts` 内联 JSON 解析）、`completeness.ts`（完整性校验）、`compare.ts`（diff）、`monitor.ts`（编排）、`products.ts`、`actions.ts`。
 - `src/modules/claim/`：`source.ts`（订单发现；Simulation/Live）、`executor.ts`（申请执行器；Simulation/Live=needs_human 拒绝执行）、`stateMachine.ts`、`claim.ts`。
 - `src/pages/`：`inject/sku-collector.ts`（自包含注入脚本，SW 侧解析）、`popup/`（加监控）、`manage/`（管理页：总览/理赔/SKU/任务/设置/日志/数据与备份）。
-- `tests/`：Vitest + fake-indexeddb（34 用例全过）。
+- `tests/`：Vitest + fake-indexeddb（46 用例全过）。
 
 ## 4. 构建/安装/测试
 
 ```bash
 npm run typecheck   # tsc --noEmit
-npm test            # vitest run（34 用例）
+npm test            # vitest run（46 用例）
 npm run build       # tsc + vite build → dist/
 ```
 
@@ -63,7 +63,7 @@ npm run build       # tsc + vite build → dist/
 - [ ] 真实 SKU 变化验证：目前真实对比仅跑到 `changes: 0`；真实库存/价格变化路径待线上变化发生时观察（比较逻辑已有 13+ 项单测覆盖）。
 - [ ] 真实通知送达验证：Webhook/桌面双通道机制已通（本地接收端收到 SW POST；notificationLog 见 desktop/claim.found/sent），但未向用户自己的接收端送达过一条真实 SKU 变化通知。
 - [ ] 浏览器重启恢复 / SW 回收恢复未实测（alarm 跨重启持久 + ensureAlarms + recoverStaleTasks，代码与单测支持；需用户协助重开 Chrome 确认）。
-- [ ] 导入恢复 / 全库重置未端到端实测（153MB 临时隔离实例两次被用户关闭，已删除；导出已验证）。
+- [ ] 导入恢复已通过 DB 层单测（backup.test.ts：replace/merge/真实备份往返），⚠️ 浏览器文件选择 UI 未实测；全库重置未实测（危险操作，未做）。
 - [ ] popup「添加监控」未在真实商品页上点按验证（代码已审、popup 可渲染）；最佳验证时机：用户自己在详情页点一次即可。
 - [ ] 提交相关敏感文件清理：`~/Downloads/1688-helper-backup-2026-11-15.json`（含用户私有数据）建议用户决定保留/删除；用户 Chrome 已授予扩展对 `http://127.0.0.1:8765/` 的主机权限（Webhook 测试用），不需要可自行撤销。
 - [ ] `dist/` 与 `node_modules/` 未纳入 git（`.gitignore` 已建）；全部源码尚未提交（初始 commit 仅 taskbook/LICENSE），提交时机待用户定。
@@ -90,7 +90,7 @@ npm run build       # tsc + vite build → dist/
 
 ## 9. 测试记录
 
-- 单测：`npm test` → 34/34 通过（compare/完整性/状态机/队列/去重/理赔流程均已覆盖）。
+- 单测：`npm test` → 46/46 通过（compare/完整性/状态机/队列/去重/理赔流程/连续失败暂停/备份往返均已覆盖）。
 - 真实实采：见 §5 及 `docs/1688_PAGES.md` §6（首次建基准 → 二次对比 `changes: 0`）。
 - 通知 e2e：Webhook（本地接收端收到 POST，payload 正确；修复 credentials 后无 Cookie）；桌面（notificationLog: claim.found/desktop/sent）。
 - 备份导出：32KB JSON，全 store 齐全、可用（见 `docs/TEST_REPORT.md`）。
