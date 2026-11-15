@@ -1,0 +1,19 @@
+.popup { width: 340px; font: 13px/1.5 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; color: #1f2329; }
+.popup__header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #f0f0f0; font-weight: 600; }
+.popup__body { padding: 12px; min-height: 80px; }
+.popup__footer { padding: 8px 12px; border-top: 1px solid #f0f0f0; text-align: right; }
+.link-btn { border: none; background: none; color: #ff5b00; cursor: pointer; font-size: 12px; padding: 4px 6px; }
+.link-btn:hover { text-decoration: underline; }
+.card { border: 1px solid #f0ede8; border-radius: 8px; padding: 10px; background: #fffdfb; }
+.card__img { width: 100%; height: 120px; object-fit: contain; background: #fafafa; border-radius: 6px; }
+.card__title { font-weight: 600; margin: 8px 0 4px; word-break: break-all; }
+.card__meta { color: #8a8a8a; font-size: 11px; margin-bottom: 8px; word-break: break-all; }
+.btn { display: block; width: 100%; border: none; border-radius: 6px; background: #ff5b00; color: #fff; padding: 9px 0; font-size: 13px; cursor: pointer; }
+.btn:hover { background: #e64f00; }
+.btn:disabled { background: #d8d8d8; cursor: default; }
+.btn--ghost { background: #fff; color: #ff5b00; border: 1px solid #ff5b00; margin-top: 8px; }
+.status { margin-top: 8px; font-size: 12px; }
+.status--ok { color: #1ba784; }
+.status--err { color: #d4380d; }
+.hint { color: #8a8a8a; font-size: 12px; }
+.row { display: flex; gap: 8px; align-items: center; }

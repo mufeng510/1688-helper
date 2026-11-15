@@ -1,0 +1,25 @@
+{
+  "name": "1688-helper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "1688 智能助手 Chrome 扩展（个人自用）：SKU 变化监控 + 揽收超时自动理赔框架",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build",
+    "dev": "vite build --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "idb": "^8.0.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.7",
+    "@types/node": "^26.6.6",
+    "fake-indexeddb": "^6.0.0",
+    "typescript": "~5.6.3",
+    "vite": "^6.0.0",
+    "vitest": "^2.1.0"
+  }
+}
