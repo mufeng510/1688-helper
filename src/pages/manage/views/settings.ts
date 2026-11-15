@@ -1,7 +1,9 @@
 // 系统设置页
 import { getSettings, setSettings } from '@/common/settings';
 import { DEFAULT_SETTINGS } from '@/common/types';
-import { sendMessage, toast, confirmDanger } from './helpers';
+import { getImport1688Settings, setImport1688Settings, clearImport1688Token } from '@/modules/import1688/settings';
+import { maskToken, originOf as wsOriginOf } from '@/modules/import1688/payload';
+import { sendMessage, toast, confirmDanger, esc } from './helpers';
 
 const originOf = (rawUrl: string): string | null => {
   try {
@@ -14,6 +16,8 @@ const originOf = (rawUrl: string): string | null => {
 
 export const renderSettings = async (container: HTMLElement): Promise<void> => {
   const settings = await getSettings();
+  const wsSettings = await getImport1688Settings();
+  const tokenHint = wsSettings.token ? `已设置（末 4 位 ${maskToken(wsSettings.token).slice(-4)}）` : '未设置';
 
   container.innerHTML = `
     <h1 class="page-title">系统设置</h1>
@@ -74,6 +78,25 @@ export const renderSettings = async (container: HTMLElement): Promise<void> => {
     </div>
 
     <div class="card">
+      <h2>工作台（1688 商品导入）</h2>
+      <p class="hint">在 1688 商品详情页点「📥 导入工作台」即可把本商品导入小红书多账号内容生产工作台。先在工作台网页 → API 令牌 创建 <code>manage</code> 权限 Token 后粘贴到此；撤销后本功能不可用。</p>
+      <label class="field"><span>工作台 Base URL</span>
+        <input id="wsBaseUrl" type="text" placeholder="http://127.0.0.1:8080" value="${esc(wsSettings.baseUrl)}" autocomplete="off" />
+      </label>
+      <label class="field"><span>API Token（${esc(tokenHint)}；留空则保持不变）</span>
+        <input id="wsToken" type="password" placeholder="粘贴 manage 权限 Token" autocomplete="new-password" />
+      </label>
+      <div class="row">
+        <button id="wsSaveBtn" class="btn btn--primary">保存工作台设置</button>
+        <button id="wsClearTokenBtn" class="btn btn--danger">清除 Token</button>
+        <button id="wsAuthBtn" class="btn">授权工作台域名</button>
+        <button id="wsTestBtn" class="btn">连接测试</button>
+        <span id="wsResult" class="hint"></span>
+      </div>
+      <p class="hint">Token 仅保存在本机 chrome.storage.local，不明文回显、不写入日志。请求由扩展后台发出，不受页面混合内容/CORS 限制，但仍需「授权工作台域名」放行私有地址（http 局域网也需要）。若 https 商品页 → http 工作台仍被浏览器拦截，请给工作台套 https，或在 chrome://flags 放行本地网络访问。使用说明见工作台仓库 <a href="https://github.com/mufeng510/xhs-workstation/blob/main/docs/import-1688.md" target="_blank" rel="noreferrer">docs/import-1688.md</a>（D-13 变更对齐）。</p>
+    </div>
+
+    <div class="card">
       <h2>日志</h2>
       <label class="field"><span>日志级别</span>
         <select id="logLevel">
@@ -116,6 +139,69 @@ export const renderSettings = async (container: HTMLElement): Promise<void> => {
       toast(result.ok ? `✅ ${result.message}` : `❌ ${result.message}`);
     } catch (err) {
       toast(`测试失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $('#wsAuthBtn').addEventListener('click', async () => {
+    let origin: string;
+    try {
+      origin = wsOriginOf($<HTMLInputElement>('#wsBaseUrl').value);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err));
+      return;
+    }
+    try {
+      const granted = await chrome.permissions.request({ origins: [origin] });
+      toast(granted ? `已授权 ${origin}` : '未授权（导入请求将无法发送，请重试）');
+    } catch (err) {
+      toast(`授权失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  });
+
+  $('#wsSaveBtn').addEventListener('click', async () => {
+    const baseUrl = $<HTMLInputElement>('#wsBaseUrl').value;
+    const token = $<HTMLInputElement>('#wsToken').value;
+    try {
+      await setImport1688Settings(token.trim() ? { baseUrl, token } : { baseUrl });
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err));
+      return;
+    }
+    $<HTMLInputElement>('#wsToken').value = '';
+    const saved = await getImport1688Settings();
+    toast('工作台设置已保存');
+    $('#wsResult').textContent = saved.token ? `Token 已设置（末 4 位 ${maskToken(saved.token).slice(-4)}）` : 'Token 未设置';
+  });
+
+  $('#wsClearTokenBtn').addEventListener('click', async () => {
+    if (!confirmDanger('清除工作台 API Token？清除后 1688 导入功能将不可用，直到重新设置。')) return;
+    await clearImport1688Token();
+    $('#wsResult').textContent = 'Token 已清除';
+    toast('已清除工作台 Token');
+  });
+
+  $('#wsTestBtn').addEventListener('click', async () => {
+    const btn = $('#wsTestBtn') as HTMLButtonElement;
+    const resultEl = $('#wsResult');
+    btn.disabled = true;
+    resultEl.textContent = '测试中…';
+    try {
+      // 先归一化保存当前 Base URL（与保存按钮一致），再尽力授权并测试
+      const baseUrl = $<HTMLInputElement>('#wsBaseUrl').value;
+      const saved = await setImport1688Settings({ baseUrl });
+      try {
+        await chrome.permissions.request({ origins: [wsOriginOf(saved.baseUrl)] });
+      } catch {
+        // 授权失败不阻断测试，由测试结果直观反馈
+      }
+      const result = await sendMessage<{ ok: boolean; message: string }>({ type: 'import1688.testConnection', baseUrl: saved.baseUrl });
+      resultEl.textContent = result.ok ? `✅ ${result.message}` : `❌ ${result.message}`;
+      toast(result.ok ? '工作台连接正常' : '工作台连接异常');
+    } catch (err) {
+      resultEl.textContent = `❌ ${err instanceof Error ? err.message : String(err)}`;
+      toast('连接测试失败');
     } finally {
       btn.disabled = false;
     }

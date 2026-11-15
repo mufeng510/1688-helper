@@ -9,6 +9,7 @@
 
 - **模块 A（揽收超时自动理赔）**：扫描揽收超时订单 → 自动申请理赔。**当前无真实揽收超时订单**，真实页面适配全部预留，模拟环境与真实环境严格区分，严禁伪造真实理赔成功。
 - **模块 B（SKU 变化监控）**：完整交付的核心功能。全量 SKU 新增/删除/规格/属性/库存/价格变化监控，快照 diff，桌面+Webhook 通知。
+- **模块 D（1688 商品导入工作台，2026-11-15 新增，v0.4.0）**：商品页一键采集 → 工作台预览（ingest）→ 确认卡片 → 入库（execute）。增量功能，不改动既有模块。**端到端已真实验证（2026-11-15，调试实例 127.0.0.1:8081，见 `docs/IMPORT_1688.md`「端到端验证」）**；v0.4.0 增加重复导入防护（by-offer 检查 + 卡片已存在横幅/更新-新建单选 + execute `mode`/`allow_duplicate`），工作台侧契约已交付，实现待升级（见 `docs/IMPORT_1688.md`「重复导入防护」）。
 - **模块 C（HTML 采集）**：仅预留模块边界，不实现推送，不假设用户自建网站 API。
 
 ## 2. 核心业务规则（固化进代码）
@@ -31,15 +32,18 @@
 - `src/background/`：`sw.ts`（入口）、`scheduler.ts`（tick/队列调度）、`tab-runner.ts`（后台标签）、`router.ts`（消息路由）。
 - `src/modules/sku/`：采集（`skuModel.ts` 内联 JSON 解析）、`completeness.ts`（完整性校验）、`compare.ts`（diff）、`monitor.ts`（编排）、`products.ts`、`actions.ts`。
 - `src/modules/claim/`：`source.ts`（订单发现；Simulation/Live）、`executor.ts`（申请执行器；Simulation/Live=needs_human 拒绝执行）、`stateMachine.ts`、`claim.ts`。
-- `src/pages/`：`inject/sku-collector.ts`（自包含注入脚本，SW 侧解析）、`popup/`（加监控）、`manage/`（管理页：总览/理赔/SKU/任务/设置/日志/数据与备份）。
-- `tests/`：Vitest + fake-indexeddb（46 用例全过）。
+- `src/modules/import1688/`（模块 D）：`payload.ts`（纯逻辑，可单测）、`settings.ts`（独立 storage key `import1688`）、`client.ts`（SW fetch + 错误映射）、`collect.ts`（MAIN world 读 window.context/outerHTML）、`service.ts`、`types.ts`。
+- `src/pages/`：`inject/sku-collector.ts`（自包含注入脚本，SW 侧解析）、`inject/import-1688.ts`（模块 D content script，**classic script 必须自包含**）、`popup/`（加监控）、`manage/`（管理页：总览/理赔/SKU/任务/设置/日志/数据与备份）。
+- 构建：`vite.config.ts`（主构建，`emptyOutDir`）+ `vite.content.config.ts`（模块 D content script 单独打包，**必须在主构建后运行**）。
+- `tests/`：Vitest + fake-indexeddb（83 用例全过）。
 
 ## 4. 构建/安装/测试
 
 ```bash
 npm run typecheck   # tsc --noEmit
-npm test            # vitest run（46 用例）
-npm run build       # tsc + vite build → dist/
+npm test            # vitest run（83 用例）
+npm run build       # tsc + vite build（主）+ vite -c vite.content.config.ts（模块 D content script，须最后跑）
+npm run build:content  # 仅重打 content script（改 import-1688.ts 时够用，但它引用 payload.ts 变更需一起确认）
 ```
 
 - 扩展解压加载于 `/home/jerry/workspace/1688-helper/dist`，扩展 ID：`bjnbhbmdnhdnplflhmdbinflhdkfcine`（ID 由 dist 路径哈希决定，换路径会变）。
@@ -56,6 +60,9 @@ npm run build       # tsc + vite build → dist/
 - [x] 风控误判修复（见 §7 已知问题 #1）。
 - [x] 通知双通道 e2e：Webhook 本地接收端收到扩展 SW 的 POST（payload 正确；发现 ambient Cookie 泄露，已修复 `credentials:'omit'` 并复测无 Cookie）；桌面通知在真实浏览器触发（notificationLog：`claim.found`/desktop/sent）。
 - [x] 数据导出 e2e（32KB 备份全 store 齐全）；README、docs/TEST_REPORT.md 已写。
+- [x] **模块 D 1688 商品导入（2026-11-15，v0.2.0）**：FAB 注入 + 点击→SW→Token 检查 toast 全链路实测（offerId 991485897552，用户 Chrome）；设置页工作台卡片渲染正确；typecheck 全绿（顺带修 backup.test.ts 两处既有报错）。详见 `docs/IMPORT_1688.md`。
+- [x] **模块 D 真实链路端到端验证（2026-11-15，v0.3.0，调试实例 127.0.0.1:8081）**：后端 API 契约（health/401/400/422/502 回滚/媒体落盘鉴权/图片 sha256 去重）+ 扩展 UI 全链路（设置页保存→授权域名→连接测试→FAB→预览卡片→确认导入→/products/<id> 可见、图片本地化）均已实测。products id=4（API 构建，5 区块）、id=5/6（用户点按，4 区块，两次独立导入，用户已确认）入库成功。详见 `docs/IMPORT_1688.md`。
+- [x] **模块 D 重复导入防护（扩展侧，v0.4.0，2026-11-15）**：by-offer SW 查询（失败降级不阻断）+ 预览卡片「工作台已有该商品」横幅（id/名称/更新时间）+「更新已有商品（默认）/ 仍然新建」单选 + 按钮文案联动；execute 请求显式带 `mode`/`allow_duplicate`（plan: create/update/create-anyway）；409 红色提示；toast 按 `action` 区分「已导入/已更新」；`isValidExecuteRequest` 兜底校验 mode/allow_duplicate。83/83 单测、typecheck 全绿、dist v0.4.0（manifest + package.json 同步为 0.4.0，顺带对齐此前 0.1.0 滞后的 package.json）。**UI 与 409/update 真实链路未验证（依赖工作台升版）。**
 
 ## 6. 未完成 / 待办
 
@@ -65,6 +72,9 @@ npm run build       # tsc + vite build → dist/
 - [x] 浏览器重启恢复已实测（2026-11-15 电脑重启）：SW 自动启动（13:58），alarm 补建，SKU 扫描（13:59）与理赔扫描自动执行，数据/日志（52 条）全部持久，用户标签无干扰。SW 回收恢复有单测覆盖，真实回收过程无法直接观察。
 - [ ] 导入恢复已通过 DB 层单测（backup.test.ts：replace/merge/真实备份往返），⚠️ 浏览器文件选择 UI 未实测；全库重置未实测（危险操作，未做）。
 - [ ] popup「添加监控」未在真实商品页上点按验证（代码已审、popup 可渲染）；最佳验证时机：用户自己在详情页点一次即可。
+- [x] ~~工作台升级以支持重复导入防护~~ → 完成并验证（2026-11-15）：by-offer（exists/422/401）、execute 行为矩阵全格（409 撞重复 / allow_duplicate 新建 / update 原地更新 id 不变+内容替换 / upsert 新建 / 422 非法组合 / 502 更新整体回滚 / 并发两次 update 无新增）。API 级全部实测通过；扩展 UI 点按仍待用户重载 v0.4.0 后验证。
+- [ ] 调试实例内测试商品 id=4/5/6（offer 991485897552，同一 offer 四件商品含 id=2）可在工作台删除，或 `docker compose -f /tmp/opencode/ext-debug-compose.yaml down -v` 整体清空。
+- [ ] ~~**模块 D 真实链路待验收**~~ → 已完成（2026-11-15 端到端验证通过，见 §5；未验证项：503 磁盘不足、Token 撤销后 UI 引导、局域网 http 工作台、详情图导入、m.1688.com 移动端、既有能力未逐项回归）。
 - [ ] 提交相关敏感文件清理：`~/Downloads/1688-helper-backup-2026-11-15.json`（含用户私有数据）建议用户决定保留/删除；用户 Chrome 已授予扩展对 `http://127.0.0.1:8765/` 的主机权限（Webhook 测试用），不需要可自行撤销。
 - [ ] `dist/` 与 `node_modules/` 未纳入 git（`.gitignore` 已建）；全部源码尚未提交（初始 commit 仅 taskbook/LICENSE），提交时机待用户定。
 
@@ -80,18 +90,26 @@ npm run build       # tsc + vite build → dist/
 8. **Webhook 泄露 ambient Cookie（已修复）**：SW 的 `fetch` 默认携带环境 Cookie（实测接收端看到 `oc_ui_session_...`）。修复：`sendNotification`/`testWebhook` 均加 `credentials:'omit'`，复测请求无 Cookie。教训：webhook 不该带任何 ambient 凭证。
 9. 桌面通知 e2e 真实触发：notificationLog 捕获 `claim.found`（desktop/sent，10:57 模拟模式发现 6 笔揽收超时），证明桌面通道在真实浏览器可用。
 10. 临时隔离实例验证（2026-11-15）：Google Chrome 生产版**忽略** `--load-extension`（日志 `--load-extension is not allowed in Google Chrome`），只能走 GUI「加载未打包」；临时实例两次被用户关闭，已删除（`/tmp/opencode/e2e-profile*`，各 153MB）。
+11. **MV3 content_scripts 是 classic script**：不能引用 vite 代码分割的 ESM chunk（Chrome SyntaxError）。模块 D 的 content script 用 `vite.content.config.ts` 单独打包为自包含文件，且必须在主构建（`emptyOutDir`）之后执行；曾把 import 留在 content script 里，产物直接不可用。
+12. **chrome://extensions 的 ↻ 重新加载按钮坐标别靠猜**（1920×1080 下 ≈ (732, 537)，以卡片「详情/移除」同一行为准）；连续两次点空（y 偏高）导致「SW 似乎没更新」的误判——实际是扩展从未被重载。验证加载的是否新版本：看卡片版本号（0.1.0→0.2.0 只在重载后变化）。
+13. **2026-11-15 用户 Chrome 两次自行消失**（14:23、14:31，均在我 GUI 自动化期间；原因未知，可能是用户介入或 Chrome 崩溃）。教训：不要无人值守 GUI 自动化用户正在用的浏览器；交付可实测步骤让用户自己点，或事先获得明确许可。另：每次全新启动 Chrome 都会弹「要恢复页面吗？」，不替用户点「恢复」。
+
+13. **工作台不按 offer_id 去重（实测 2026-11-15）**：同一 offer 重复导入会创建重复商品（调试实例内 offer 991485897552 共 4 件：id 2/4/5/6）。扩展「确认导入」有 `submitting` 防重锁，id 5/6 为用户两次独立操作所致，非扩展 bug。若需要去重，应由工作台侧实现（扩展侧不做干预）；使用前确认预期行为。
+14. **匿名 `{html}` ingest 422（实测）**：工作台 ingest 的 html 路径无法解析 1688 内嵌 JS 字面量（含未加引号数字键），返回 422。扩展真实链路走 `window.context` + JSON.stringify，不受影响；不要为「HTML 兜底」路径做额外适配，除非工作台侧增强解析。
 
 ## 8. 用户环境事实
 
-- Debian 13，用户 Chrome（已登录 1688 买家账号 tb714536_66），1688 买家工作台：`https://work.1688.com/home/buyer.htm?_path_=buyer2017Base/2017buyerbase_trade/buyList`
+- Debian 13，用户 Chrome（已登录 1688 买家账号），1688 买家工作台：`https://work.1688.com/home/buyer.htm?_path_=buyer2017Base/2017buyerbase_trade/buyList`
+- 本地调试工作台（模块 D 验证用，**一次性**）：Base URL `http://127.0.0.1:8081`；启动 `docker compose -f /tmp/opencode/ext-debug-compose.yaml up -d`；清空 `... down -v`；数据目录 `/tmp/opencode/ext-debug-data`（不入库）；连接信息 `/tmp/opencode/ext-debug.json`（含 manage Token「ext-debug-import-test-2」，**勿入库/勿粘贴到聊天**）。AI 服务商未配置，`/api/health` 常态 `degraded` 属正常。
 - 真实揽收超时订单：**无**（2026-11-15，「待收货」下拉中「揽收超时」为空）。
 - 「揽收超时」入口（2026-11-15 截图确认）：订单列表 →「待收货」下拉 →「正常待收 127 / 揽收超时」。
 - 商品页结构见 `docs/1688_PAGES.md`；内联 JSON（`window.contextPath` 脚本）是首选解析源，DOM 行兜底。
 
 ## 9. 测试记录
 
-- 单测：`npm test` → 46/46 通过（compare/完整性/状态机/队列/去重/理赔流程/连续失败暂停/备份往返均已覆盖）。
+- 单测：`npm test` → 83/83 通过（原有 compare/完整性/状态机/队列/去重/理赔流程/连续失败暂停/备份往返 + import1688 模块用例）。
 - 真实实采：见 §5 及 `docs/1688_PAGES.md` §6（首次建基准 → 二次对比 `changes: 0`）。
+- 模块 D e2e（2026-11-15）：ingest 200（context，104 KB 真实页面数据）→ preview 字段齐全；execute 200（API 构建 product id=4；扩展 UI 用户点按 product id=5/6，12 图本地 `/api/media/N/raw`，sha256 去重）；502 图片 404 整体回滚（product 计数不变）；400 白名单 / 422 offer_id pattern / 401 撤销 Token / 媒体无 Token 401 均复测；https 商品页 → http 回环工作台导入成功。详见 `docs/IMPORT_1688.md` 与 `docs/TEST_REPORT.md` §6。
 - 通知 e2e：Webhook（本地接收端收到 POST，payload 正确；修复 credentials 后无 Cookie）；桌面（notificationLog: claim.found/desktop/sent）。
 - 备份导出：32KB JSON，全 store 齐全、可用（见 `docs/TEST_REPORT.md`）。
 - 理赔：仅模拟模式（`claimMode: simulation`）跑通扫描→去重→申请→重试→通知；**无任何真实理赔被执行或伪造**。

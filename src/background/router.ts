@@ -9,12 +9,16 @@ import { runInBackgroundTab } from './tab-runner';
 import { metaSet } from '@/common/db';
 import { scanOverdueOrders } from '@/modules/claim/claim';
 import { tasksGet, tasksPut } from '@/common/db';
+import { previewImport, executeImportRequest } from '@/modules/import1688/service';
+import { checkHealth, Import1688Error } from '@/modules/import1688/client';
+import { getImport1688Settings } from '@/modules/import1688/settings';
+import { normalizeBaseUrl } from '@/modules/import1688/payload';
 import type { MessageRequest, MessageResponse } from '@/common/types';
 
 const log = logger('router');
 
 const ok = <T>(data: T): MessageResponse<T> => ({ ok: true, data });
-const fail = (error: string): MessageResponse => ({ ok: false, error });
+const fail = (error: string, code?: number): MessageResponse => ({ ok: false, error, ...(code !== undefined ? { code } : {}) });
 
 const checkLogin = async (): Promise<{ loggedIn: boolean; checkedAt: number }> => {
   // 用后台标签访问买家工作台：根据是否跳转到登录页判断登录状态
@@ -51,7 +55,7 @@ const checkLogin = async (): Promise<{ loggedIn: boolean; checkedAt: number }> =
   return result;
 };
 
-export const handleMessage = async (msg: MessageRequest): Promise<MessageResponse> => {
+export const handleMessage = async (msg: MessageRequest, sender?: chrome.runtime.MessageSender): Promise<MessageResponse> => {
   try {
     switch (msg.type) {
       case 'overview.checkLogin':
@@ -82,6 +86,41 @@ export const handleMessage = async (msg: MessageRequest): Promise<MessageRespons
         return ok(await getSettings());
       case 'settings.set':
         return ok(await setSettings(msg.patch));
+      case 'import1688.preview': {
+        const tabId = sender?.tab?.id;
+        if (tabId === undefined) return fail('无法从当前上下文获取标签页（仅 content script 可调用）');
+        try {
+          return ok(await previewImport(tabId));
+        } catch (err) {
+          if (err instanceof Import1688Error) return fail(err.message, err.status);
+          throw err;
+        }
+      }
+      case 'import1688.execute': {
+        try {
+          return ok(await executeImportRequest(msg.request));
+        } catch (err) {
+          if (err instanceof Import1688Error) return fail(err.message, err.status);
+          throw err;
+        }
+      }
+      case 'import1688.testConnection':
+        return ok(await checkHealth(msg.baseUrl ?? (await getImport1688Settings()).baseUrl));
+      case 'import1688.openProduct': {
+        const id = Number(msg.id);
+        if (!Number.isInteger(id) || id <= 0) return fail('商品 id 非法');
+        const { baseUrl } = await getImport1688Settings();
+        await chrome.tabs.create({ url: `${normalizeBaseUrl(baseUrl)}/products/${id}` });
+        return ok({ opened: true });
+      }
+      case 'import1688.openSettings': {
+        await chrome.tabs.create({ url: chrome.runtime.getURL('pages/manage/manage.html#settings') });
+        return ok({ opened: true });
+      }
+      case 'import1688.openDoc': {
+        await chrome.tabs.create({ url: 'https://github.com/mufeng510/xhs-workstation/blob/main/docs/import-1688.md' });
+        return ok({ opened: true });
+      }
       case 'settings.testWebhook':
         return ok(await testWebhook());
       default:

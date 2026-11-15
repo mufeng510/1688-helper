@@ -1,6 +1,6 @@
 # 1688 页面调研笔记（2026-11-14，真实登录态实测）
 
-实测环境：用户 Chrome（已登录 1688 买家账号 tb714536_66），中继/自动化由 browse 驱动。
+实测环境：用户 Chrome（已登录 1688 买家账号），中继/自动化由 browse 驱动。
 测试期间仅做浏览与只读操作，测试订单为账号内已有的真实历史订单；页面未执行任何提交/修改操作。
 
 ## 1. 买家订单列表
@@ -60,7 +60,7 @@
 
 ## 6. 真实环境验证记录（2026-11-15）
 
-环境：用户 Chrome（已登录 1688 买家账号 tb714536_66），扩展解压加载于 `/home/jerry/workspace/1688-helper/dist`（扩展 ID：`bjnbhbmdnhdnplflhmdbinflhdkfcine`）。
+环境：用户 Chrome（已登录 1688 买家账号），扩展解压加载于 `/home/jerry/workspace/1688-helper/dist`（扩展 ID：`bjnbhbmdnhdnplflhmdbinflhdkfcine`）。
 
 - **商品页**：`https://detail.1688.com/offer/991485897552.html`（强磁塑胶引磁片磁吸贴片magsafe无线充电宝伴侣手机壳磁吸引磁环）
 - 首次扫描（10:56）：基准快照建立，11 个 SKU，`matchedBy: skuId` 解析路径生效，**不发通知**（符合首次只建基准规则）。

@@ -1,12 +1,13 @@
 {
   "name": "1688-helper",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "private": true,
   "description": "1688 智能助手 Chrome 扩展（个人自用）：SKU 变化监控 + 揽收超时自动理赔框架",
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && vite build -c vite.content.config.ts",
+    "build:content": "vite build -c vite.content.config.ts",
     "dev": "vite build --watch",
     "test": "vitest run",
     "test:watch": "vitest"

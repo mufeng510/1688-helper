@@ -267,8 +267,23 @@ export type MessageRequest =
   | { type: 'tasks.process' }
   | { type: 'settings.get' }
   | { type: 'settings.set'; patch: Partial<AppSettings> }
-  | { type: 'settings.testWebhook' };
+  | { type: 'settings.testWebhook' }
+  | { type: 'import1688.preview' }
+  | {
+      type: 'import1688.execute';
+      request: {
+        offer_id: string;
+        name: string;
+        blocks: Array<{ title: string; content: string }>;
+        images: Array<{ url: string; remark: string }>;
+      };
+    }
+  | { type: 'import1688.testConnection'; baseUrl?: string }
+  | { type: 'import1688.openProduct'; id: number }
+  | { type: 'import1688.openSettings' }
+  | { type: 'import1688.openDoc' };
 
 export type MessageResponse<T = unknown> =
   | { ok: true; data: T }
-  | { ok: false; error: string };
+  /** code：HTTP 状态码（如 401/403），用于引导用户去设置页；缺省为非 HTTP 错误 */
+  | { ok: false; error: string; code?: number };

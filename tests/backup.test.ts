@@ -77,10 +77,10 @@ describe('备份导出/导入', () => {
     expect(exported.app).toBe('1688-helper');
     expect(Object.keys(exported.stores).sort()).toEqual([...EXPORTABLE_STORES].sort());
     expect(exported.stores.skuProducts).toHaveLength(1);
-    expect(exported.stores.skuSnapshots).toHaveLength(1);
-    expect((exported.stores.skuSnapshots[0] as { valid: boolean }).valid).toBe(true);
+    expect(exported.stores.skuSnapshots!).toHaveLength(1);
+    expect((exported.stores.skuSnapshots![0] as { valid: boolean }).valid).toBe(true);
     expect(exported.stores.claimOrders).toHaveLength(1);
-    expect(exported.stores.notificationLog[0]).toMatchObject({ channel: 'desktop', status: 'sent' });
+    expect(exported.stores.notificationLog![0]).toMatchObject({ channel: 'desktop', status: 'sent' });
 
     // 清空后 replace 模式恢复
     const db = await getDB();

@@ -29,8 +29,8 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
-chrome.runtime.onMessage.addListener((msg: MessageRequest, _sender, sendResponse: (response: MessageResponse) => void) => {
-  handleMessage(msg)
+chrome.runtime.onMessage.addListener((msg: MessageRequest, sender, sendResponse: (response: MessageResponse) => void) => {
+  handleMessage(msg, sender)
     .then(sendResponse)
     .catch((err) => sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) }));
   return true; // 异步响应
