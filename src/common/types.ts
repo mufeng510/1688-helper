@@ -22,7 +22,36 @@ export interface SkuProduct {
   lastSuccessAt?: number;
   createdAt: number;
   updatedAt: number;
+  /** 通知规则覆盖：不填=跟随全局；填了的字段覆盖全局（进入自定义时会快照全局当前值，见 notifyRules.ts） */
+  skuNotify?: Partial<SkuNotifySettings>;
 }
+
+export interface SkuNotifySettings {
+  added: boolean;
+  removed: boolean;
+  stockOut: boolean;
+  stockRestored: boolean;
+  lowStock: boolean;
+  /** 低库存预警阈值（件）：从 > 阈值 跌破到 ≤ 阈值 时通知一次 */
+  lowStockThreshold: number;
+  stockIncreased: boolean;
+  stockDecreased: boolean;
+  specChanged: boolean;
+  priceChanged: boolean;
+}
+
+export const DEFAULT_SKU_NOTIFY: SkuNotifySettings = {
+  added: true,
+  removed: true,
+  stockOut: true,
+  stockRestored: true,
+  lowStock: true,
+  lowStockThreshold: 5,
+  stockIncreased: false,
+  stockDecreased: false,
+  specChanged: false,
+  priceChanged: false,
+};
 
 export interface SkuEntry {
   skuId?: string;
@@ -58,6 +87,7 @@ export type SkuChangeType =
   | 'STOCK_DECREASED'
   | 'STOCK_OUT'
   | 'STOCK_RESTORED'
+  | 'STOCK_LOW'
   | 'PRICE_CHANGED';
 
 export interface SkuChange {
@@ -243,6 +273,8 @@ export interface AppSettings {
     claimBatch: boolean;
     exceptions: boolean;
   };
+  /** SKU 通知规则：桌面+Webhook 共用；历史变化记录不受此影响 */
+  skuNotify: SkuNotifySettings;
   logLevel: LogLevel;
 }
 
@@ -254,6 +286,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   claimMode: 'simulation',
   webhook: { enabled: false, url: '', method: 'POST', headers: '', bodyTemplate: '' },
   desktopNotify: { enabled: true, skuChanges: true, claimBatch: true, exceptions: true },
+  skuNotify: { ...DEFAULT_SKU_NOTIFY },
   logLevel: 'info',
 };
 

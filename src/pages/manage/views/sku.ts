@@ -5,18 +5,66 @@ import {
   skuSnapshotList,
 } from '@/common/db';
 import { listSkuProducts } from '@/modules/sku/products';
-import { pauseSkuProduct, resumeSkuProduct, deleteSkuProduct, enqueueSkuScan } from '@/modules/sku/actions';
+import { pauseSkuProduct, resumeSkuProduct, deleteSkuProduct, enqueueSkuScan, setSkuNotifyOverride } from '@/modules/sku/actions';
 import { CHANGE_TYPE_LABEL } from '@/modules/sku/compare';
+import { getSettings } from '@/common/settings';
+import { effectiveSkuNotify, isSkuNotifyCustomized } from '@/modules/sku/notifyRules';
 import { esc, fmtTime, sendMessage, toast, confirmDanger } from './helpers';
-import type { SkuProduct, SkuChange, SkuSnapshot } from '@/common/types';
+import type { SkuProduct, SkuChange, SkuSnapshot, SkuNotifySettings } from '@/common/types';
+
+const ruleSummary = (rules: SkuNotifySettings): string => {
+  const on: string[] = [];
+  if (rules.added) on.push('上架');
+  if (rules.removed) on.push('下架');
+  if (rules.stockOut) on.push('售罄');
+  if (rules.stockRestored) on.push('补货');
+  if (rules.lowStock) on.push(`低库存（≤${rules.lowStockThreshold}件）`);
+  if (rules.stockIncreased) on.push('库存增加');
+  if (rules.stockDecreased) on.push('库存减少');
+  if (rules.specChanged) on.push('规格变化');
+  if (rules.priceChanged) on.push('价格变化');
+  return on.length ? on.join(' / ') : '全部静音';
+};
+
+const renderNotifySection = (p: ListedProduct, effective: SkuNotifySettings, customized: boolean): string => `
+    <div class="notify-box" style="border:1px solid var(--border,#eceef1);border-radius:8px;padding:10px 12px;margin-bottom:10px;background:#fff">
+      <div class="row" style="margin-bottom:6px">
+        <strong>本商品通知规则</strong>
+        <span class="spacer"></span>
+        <span class="hint">${customized ? '已自定义（覆盖全局）' : '跟随全局设置'}</span>
+      </div>
+      <p class="hint" style="margin:0 0 8px">当前生效：${esc(ruleSummary(effective))}</p>
+      ${customized
+        ? `<button class="btn btn--small btn--danger" data-act="notify-reset">恢复跟随全局</button>`
+        : `<button class="btn btn--small" data-act="notify-customize">自定义本商品…</button>`}
+      <div class="notify-editor" hidden style="margin-top:8px">
+        <label class="checkbox"><input class="ov" data-k="added" type="checkbox" ${effective.added ? 'checked' : ''} /> 新增 SKU（上架）</label>
+        <label class="checkbox"><input class="ov" data-k="removed" type="checkbox" ${effective.removed ? 'checked' : ''} /> 删除 SKU（下架）</label>
+        <label class="checkbox"><input class="ov" data-k="stockOut" type="checkbox" ${effective.stockOut ? 'checked' : ''} /> 库存归零（有货变无货）</label>
+        <label class="checkbox"><input class="ov" data-k="stockRestored" type="checkbox" ${effective.stockRestored ? 'checked' : ''} /> 补货恢复（从 0 变得更多）</label>
+        <label class="checkbox"><input class="ov" data-k="lowStock" type="checkbox" ${effective.lowStock ? 'checked' : ''} /> 库存偏低（跌破阈值提醒一次）</label>
+        <label class="field" style="max-width:260px"><span>低库存阈值（件）</span>
+          <input id="ov_lowStockThreshold" type="number" min="1" max="9999" value="${effective.lowStockThreshold}" />
+        </label>
+        <label class="checkbox"><input class="ov" data-k="stockIncreased" type="checkbox" ${effective.stockIncreased ? 'checked' : ''} /> 库存增加</label>
+        <label class="checkbox"><input class="ov" data-k="stockDecreased" type="checkbox" ${effective.stockDecreased ? 'checked' : ''} /> 库存减少</label>
+        <label class="checkbox"><input class="ov" data-k="specChanged" type="checkbox" ${effective.specChanged ? 'checked' : ''} /> 规格变化</label>
+        <label class="checkbox"><input class="ov" data-k="priceChanged" type="checkbox" ${effective.priceChanged ? 'checked' : ''} /> 价格变化</label>
+        <div class="row" style="margin-top:8px">
+          <button class="btn btn--primary btn--small" data-act="notify-save">保存覆盖</button>
+          <button class="btn btn--small" data-act="notify-cancel">取消</button>
+        </div>
+      </div>
+    </div>`;
 
 interface ListedProduct extends SkuProduct {
   lastValidSkuCount: number | null;
   lastValidScanAt: number | null;
 }
 
-const renderDetail = (p: ListedProduct, snap: SkuSnapshot | undefined, changes: SkuChange[], snapshots: SkuSnapshot[]): string => `
+const renderDetail = (p: ListedProduct, snap: SkuSnapshot | undefined, changes: SkuChange[], snapshots: SkuSnapshot[], notifySectionHtml: string): string => `
   <div class="detail-panel" data-detail="${esc(p.id)}">
+    ${notifySectionHtml}
     <div class="row" style="margin-bottom:8px">
       <strong>当前 SKU 状态</strong>
       <span class="spacer"></span>
@@ -70,7 +118,7 @@ export const renderSku = async (container: HTMLElement): Promise<void> => {
         </div>
         ${products.length === 0 ? '<p class="hint">暂无监控商品。</p>' : `
         <table>
-          <thead><tr><th>商品</th><th>状态</th><th>最近扫描</th><th>库存 SKU 数</th><th>连续失败</th><th>操作</th></tr></thead>
+          <thead><tr><th>商品</th><th>状态</th><th>最近扫描</th><th>库存 SKU 数</th><th>连续失败</th><th>通知</th><th>操作</th></tr></thead>
           <tbody>
             ${products.map((p) => `<tr data-row="${esc(p.id)}">
               <td><div class="row"><img class="img-thumb" src="${esc(p.image ?? '')}" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'" /><div><div>${esc(p.title)}</div><div class="hint mono">${esc(p.offerId)}</div></div></div></td>
@@ -78,6 +126,7 @@ export const renderSku = async (container: HTMLElement): Promise<void> => {
               <td>${fmtTime(p.lastScanAt)}</td>
               <td>${p.lastValidSkuCount ?? '—'}</td>
               <td>${p.consecutiveFailures > 0 ? `<span class="badge badge--err">${p.consecutiveFailures}</span>` : '0'}</td>
+              <td class="notify-cell">${isSkuNotifyCustomized(p) ? '<span class="badge badge--warn">自定义</span>' : '<span class="badge badge--ok">全局</span>'}</td>
               <td>
                 <div class="row">
                   <button class="btn btn--small" data-act="scan" data-id="${esc(p.id)}">立即扫描</button>
@@ -87,7 +136,7 @@ export const renderSku = async (container: HTMLElement): Promise<void> => {
                 </div>
               </td>
             </tr>
-            <tr class="detail-row" data-detail-row="${esc(p.id)}" hidden><td colspan="6"><div class="detail-slot"></div></td></tr>`).join('')}
+            <tr class="detail-row" data-detail-row="${esc(p.id)}" hidden><td colspan="7"><div class="detail-slot"></div></td></tr>`).join('')}
           </tbody>
         </table>`}
       </div>`;
@@ -123,12 +172,55 @@ export const renderSku = async (container: HTMLElement): Promise<void> => {
           const row = container.querySelector<HTMLTableRowElement>(`[data-detail-row="${CSS.escape(id)}"]`)!;
           const slot = row.querySelector<HTMLDivElement>('.detail-slot')!;
           if (row.hidden) {
-            const [snap, changes, snaps] = await Promise.all([
-              skuSnapshotLatestValid(id),
-              skuChangesList(id, 50),
-              skuSnapshotList(id),
-            ]);
-            slot.innerHTML = renderDetail(product, snap, changes, snaps);
+            const updateNotifyBadge = (pid: string, customized: boolean): void => {
+              const cell = container.querySelector(`tr[data-row="${CSS.escape(pid)}"] .notify-cell`);
+              if (cell) cell.innerHTML = customized ? '<span class="badge badge--warn">自定义</span>' : '<span class="badge badge--ok">全局</span>';
+            };
+            const fillDetail = async (): Promise<void> => {
+              const settings = await getSettings();
+              const effective = effectiveSkuNotify(product, settings);
+              const customized = isSkuNotifyCustomized(product);
+              const [snap, changes, snaps] = await Promise.all([
+                skuSnapshotLatestValid(id),
+                skuChangesList(id, 50),
+                skuSnapshotList(id),
+              ]);
+              slot.innerHTML = renderDetail(product, snap, changes, snaps, renderNotifySection(product, effective, customized));
+              const editor = slot.querySelector<HTMLDivElement>('.notify-editor')!;
+              slot.querySelector('[data-act="notify-customize"]')?.addEventListener('click', () => { editor.hidden = false; });
+              slot.querySelector('[data-act="notify-cancel"]')?.addEventListener('click', () => { editor.hidden = true; });
+              slot.querySelector('[data-act="notify-reset"]')?.addEventListener('click', async () => {
+                await setSkuNotifyOverride(id, undefined);
+                product.skuNotify = undefined;
+                toast('已恢复跟随全局通知规则');
+                updateNotifyBadge(id, false);
+                await fillDetail();
+              });
+              slot.querySelector('[data-act="notify-save"]')?.addEventListener('click', async () => {
+                const q = <T extends HTMLInputElement>(sel: string) => slot.querySelector<T>(sel)!;
+                const ov = (k: string) => q<HTMLInputElement>(`.ov[data-k="${k}"]`).checked;
+                const th = Number.parseInt(q<HTMLInputElement>('#ov_lowStockThreshold').value, 10);
+                const override: Partial<SkuNotifySettings> = {
+                  added: ov('added'),
+                  removed: ov('removed'),
+                  stockOut: ov('stockOut'),
+                  stockRestored: ov('stockRestored'),
+                  lowStock: ov('lowStock'),
+                  lowStockThreshold: Number.isFinite(th) ? Math.max(1, Math.min(9999, th)) : 5,
+                  stockIncreased: ov('stockIncreased'),
+                  stockDecreased: ov('stockDecreased'),
+                  specChanged: ov('specChanged'),
+                  priceChanged: ov('priceChanged'),
+                };
+                const updated = await setSkuNotifyOverride(id, override);
+                if (!updated) { toast('商品不存在'); return; }
+                product.skuNotify = updated.skuNotify;
+                toast('已保存本商品通知规则');
+                updateNotifyBadge(id, true);
+                await fillDetail();
+              });
+            };
+            await fillDetail();
             row.hidden = false;
           } else {
             row.hidden = true;

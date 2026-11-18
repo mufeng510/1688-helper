@@ -154,6 +154,8 @@ describe('SKU 扫描失败处理', () => {
   });
 
   it('检测到库存减少 → 汇总一条通知；再次扫描相同数据 → 不重复通知（任务书 §12.2-12/13）', async () => {
+    // 默认规则下「库存减少」是静音的——本用例显式开启以验证减少→通知链路
+    await chrome.storage.local.set({ settings: { skuNotify: { stockDecreased: true } } });
     await seedProduct({ baselineEstablished: false });
     okTab(50);
     await scanSkuProduct('prd_mon_1'); // 建基准
@@ -173,6 +175,41 @@ describe('SKU 扫描失败处理', () => {
     db = await getDB();
     const changed2 = (await db.getAll('notificationLog')).filter((n) => n.type === 'sku.changed');
     expect(changed2).toHaveLength(1); // 仍然只有一条
+  });
+
+  it('默认规则：库存减少被静音（不发通知），但变化记录照常写入 skuChanges', async () => {
+    await seedProduct({ baselineEstablished: false });
+    okTab(50);
+    await scanSkuProduct('prd_mon_1'); // 建基准
+    okTab(20);
+    const r = await scanSkuProduct('prd_mon_1');
+    expect(r.changes.some((c) => c.type === 'STOCK_DECREASED')).toBe(true); // 检测到
+    const db = await getDB();
+    expect((await db.getAll('skuChanges')).some((c) => c.type === 'STOCK_DECREASED')).toBe(true); // 记录在案
+    expect((await db.getAll('notificationLog')).filter((n) => n.type === 'sku.changed')).toHaveLength(0); // 不通知
+  });
+
+  it('低库存预警：50→6 不提醒；6→5 提醒一次；再 5→4 不重复提醒', async () => {
+    await seedProduct({ baselineEstablished: false });
+    okTab(50);
+    await scanSkuProduct('prd_mon_1'); // 建基准
+    okTab(6);
+    const r6 = await scanSkuProduct('prd_mon_1');
+    expect(r6.changes.some((c) => c.type === 'STOCK_LOW')).toBe(false);
+    expect((await (await getDB()).getAll('notificationLog')).filter((n) => n.type === 'sku.changed')).toHaveLength(0);
+
+    okTab(5);
+    const r5 = await scanSkuProduct('prd_mon_1');
+    expect(r5.changes.some((c) => c.type === 'STOCK_LOW')).toBe(true);
+    let db = await getDB();
+    const low1 = (await db.getAll('notificationLog')).filter((n) => n.type === 'sku.changed');
+    expect(low1).toHaveLength(1);
+    expect(low1[0]?.body).toContain('库存偏低');
+
+    okTab(4);
+    await scanSkuProduct('prd_mon_1');
+    db = await getDB();
+    expect((await db.getAll('notificationLog')).filter((n) => n.type === 'sku.changed')).toHaveLength(1); // 仍然只有一条
   });
 
   it('失败两次后成功 → 连续失败计数清零', async () => {

@@ -28,8 +28,9 @@ export interface CompareResult {
 export const compareSnapshots = (
   prev: NormalizedSku[],
   curr: NormalizedSku[],
-  ctx: { productId: string; offerId: string; productTitle: string },
+  ctx: { productId: string; offerId: string; productTitle: string; lowStockThreshold?: number },
 ): CompareResult => {
+  const lowStockThreshold = ctx.lowStockThreshold ?? 5;
   const now = Date.now();
   const prevMap = new Map(prev.map((s) => [identityKey(s), s] as const));
   const currMap = new Map(curr.map((s) => [identityKey(s), s] as const));
@@ -84,6 +85,10 @@ export const compareSnapshots = (
       } else {
         changes.push(mk('STOCK_DECREASED', before, after, after.name));
       }
+      // 跌破低库存阈值：prev > N && 0 < curr <= N（=0 归 STOCK_OUT，不重复）
+      if (bStock > lowStockThreshold && aStock <= lowStockThreshold && aStock > 0) {
+        changes.push(mk('STOCK_LOW', before, after, after.name));
+      }
     }
     // 价格变化（扩展监控信息；价格缺失不影响核心库存比较）
     if (before.price !== undefined && after.price !== undefined && Math.abs(before.price - after.price) > 0.001) {
@@ -108,5 +113,6 @@ export const CHANGE_TYPE_LABEL: Record<SkuChangeType, string> = {
   STOCK_DECREASED: '库存减少',
   STOCK_OUT: '库存归零（有货变无货）',
   STOCK_RESTORED: '恢复有货',
+  STOCK_LOW: '库存偏低（跌破阈值）',
   PRICE_CHANGED: '价格变化',
 };

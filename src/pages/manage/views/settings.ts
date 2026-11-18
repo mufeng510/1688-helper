@@ -1,6 +1,6 @@
 // 系统设置页
 import { getSettings, setSettings } from '@/common/settings';
-import { DEFAULT_SETTINGS } from '@/common/types';
+import { DEFAULT_SETTINGS, DEFAULT_SKU_NOTIFY } from '@/common/types';
 import { getImport1688Settings, setImport1688Settings, clearImport1688Token } from '@/modules/import1688/settings';
 import { maskToken, originOf as wsOriginOf } from '@/modules/import1688/payload';
 import { sendMessage, toast, confirmDanger, esc } from './helpers';
@@ -67,6 +67,27 @@ export const renderSettings = async (container: HTMLElement): Promise<void> => {
         <span class="hint">若测试提示 CORS/权限错误，请先点击「授权 Webhook 域名」</span>
       </div>
       <p class="hint">URL 与密钥仅保存在本机，不会写入日志；Webhook 失败不影响业务任务。</p>
+    </div>
+
+    <div class="card">
+      <h2>SKU 通知规则</h2>
+      <p class="hint">桌面通知与 Webhook 共用下面的选择；静音的场景仍会记录到「SKU 监控 → 详情 → 历史变化」，只是不发送。每商品可在「SKU 监控 → 详情」里单独覆盖。</p>
+      <label class="checkbox"><input id="skAdded" type="checkbox" ${settings.skuNotify.added ? 'checked' : ''} /> 新增 SKU（上架）</label>
+      <label class="checkbox"><input id="skRemoved" type="checkbox" ${settings.skuNotify.removed ? 'checked' : ''} /> 删除 SKU（下架）</label>
+      <label class="checkbox"><input id="skStockOut" type="checkbox" ${settings.skuNotify.stockOut ? 'checked' : ''} /> 库存归零（有货变无货）</label>
+      <label class="checkbox"><input id="skStockRestored" type="checkbox" ${settings.skuNotify.stockRestored ? 'checked' : ''} /> 补货恢复（从 0 变得更多）</label>
+      <label class="checkbox"><input id="skLowStock" type="checkbox" ${settings.skuNotify.lowStock ? 'checked' : ''} /> 库存偏低（快变成 0 时提醒一次）</label>
+      <label class="field" style="max-width:280px"><span>低库存阈值（件；从 &gt; 阈值 跌破到 ≤ 阈值 时通知一次）</span>
+        <input id="skLowStockThreshold" type="number" min="1" max="9999" value="${settings.skuNotify.lowStockThreshold}" />
+      </label>
+      <label class="checkbox"><input id="skStockInc" type="checkbox" ${settings.skuNotify.stockIncreased ? 'checked' : ''} /> 库存增加（静音推荐）</label>
+      <label class="checkbox"><input id="skStockDec" type="checkbox" ${settings.skuNotify.stockDecreased ? 'checked' : ''} /> 库存减少（静音推荐）</label>
+      <label class="checkbox"><input id="skSpec" type="checkbox" ${settings.skuNotify.specChanged ? 'checked' : ''} /> 规格变化</label>
+      <label class="checkbox"><input id="skPrice" type="checkbox" ${settings.skuNotify.priceChanged ? 'checked' : ''} /> 价格变化（仅记录，不通知推荐静音）</label>
+      <div class="row" style="margin-top:8px">
+        <button id="skResetBtn" class="btn">恢复默认通知规则</button>
+        <span id="skRuleSummary" class="hint"></span>
+      </div>
     </div>
 
     <div class="card">
@@ -207,6 +228,32 @@ export const renderSettings = async (container: HTMLElement): Promise<void> => {
     }
   });
 
+  const skLabel = () => {
+    const on: string[] = [];
+    if ($<HTMLInputElement>('#skAdded').checked) on.push('上架');
+    if ($<HTMLInputElement>('#skRemoved').checked) on.push('下架');
+    if ($<HTMLInputElement>('#skStockOut').checked) on.push('售罄（变成0）');
+    if ($<HTMLInputElement>('#skStockRestored').checked) on.push('补货');
+    if ($<HTMLInputElement>('#skLowStock').checked) on.push(`低库存（≤${$<HTMLInputElement>('#skLowStockThreshold').value || 5}件）`);
+    if ($<HTMLInputElement>('#skStockInc').checked) on.push('库存增加');
+    if ($<HTMLInputElement>('#skStockDec').checked) on.push('库存减少');
+    if ($<HTMLInputElement>('#skSpec').checked) on.push('规格变化');
+    if ($<HTMLInputElement>('#skPrice').checked) on.push('价格变化');
+    return on.length ? `当前生效：桌面+Webhook 仅发送 ${on.join(' / ')}` : '当前已全部静音（桌面和 Webhook 都不会发送 SKU 通知）';
+  };
+  const skSummary = $('#skRuleSummary');
+  const syncSkSummary = () => { skSummary.textContent = skLabel(); };
+  for (const id of ['skAdded','skRemoved','skStockOut','skStockRestored','skLowStock','skLowStockThreshold','skStockInc','skStockDec','skSpec','skPrice']) {
+    $(`#${id}`).addEventListener('change', syncSkSummary);
+  }
+  syncSkSummary();
+
+  $('#skResetBtn').addEventListener('click', async () => {
+    await setSettings({ skuNotify: { ...DEFAULT_SKU_NOTIFY } });
+    toast('已恢复默认通知规则（上架/下架/售罄/补货/低库存≤5件）');
+    window.location.reload();
+  });
+
   const persist = async () => {
     const num = (id: string, fallback: number) => {
       const v = Number.parseInt($<HTMLInputElement>(id).value, 10);
@@ -236,6 +283,21 @@ export const renderSettings = async (container: HTMLElement): Promise<void> => {
         skuChanges: $<HTMLInputElement>('#dtSku').checked,
         claimBatch: $<HTMLInputElement>('#dtClaim').checked,
         exceptions: $<HTMLInputElement>('#dtExc').checked,
+      },
+      skuNotify: {
+        added: $<HTMLInputElement>('#skAdded').checked,
+        removed: $<HTMLInputElement>('#skRemoved').checked,
+        stockOut: $<HTMLInputElement>('#skStockOut').checked,
+        stockRestored: $<HTMLInputElement>('#skStockRestored').checked,
+        lowStock: $<HTMLInputElement>('#skLowStock').checked,
+        lowStockThreshold: (() => {
+          const v = Number.parseInt($<HTMLInputElement>('#skLowStockThreshold').value, 10);
+          return Number.isFinite(v) ? Math.max(1, Math.min(9999, v)) : DEFAULT_SKU_NOTIFY.lowStockThreshold;
+        })(),
+        stockIncreased: $<HTMLInputElement>('#skStockInc').checked,
+        stockDecreased: $<HTMLInputElement>('#skStockDec').checked,
+        specChanged: $<HTMLInputElement>('#skSpec').checked,
+        priceChanged: $<HTMLInputElement>('#skPrice').checked,
       },
       logLevel: $<HTMLSelectElement>('#logLevel').value as typeof settings.logLevel,
     });

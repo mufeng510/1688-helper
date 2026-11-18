@@ -3,6 +3,7 @@ import { skuProductsGet, skuProductsPut, skuProductsDelete } from '@/common/db';
 import { enqueue } from '@/common/tasks';
 import { logger } from '@/common/log';
 import type { SkuProduct } from '@/common/types';
+import type { SkuNotifyOverride } from './notifyRules';
 
 const log = logger('sku.actions');
 
@@ -48,4 +49,17 @@ export const deleteSkuProduct = async (productId: string): Promise<void> => {
 
 export const enqueueSkuScan = async (productId: string): Promise<void> => {
   await enqueue({ type: 'sku.scan', payload: { productId }, dedupeKey: `sku.scan:${productId}` });
+};
+
+/** 设置/清除商品级通知规则覆盖。override 为完整快照（10 个键）或 undefined（恢复跟随全局） */
+export const setSkuNotifyOverride = async (
+  productId: string,
+  override: SkuNotifyOverride | undefined,
+): Promise<SkuProduct | null> => {
+  const p = await skuProductsGet(productId);
+  if (!p) return null;
+  const next: SkuProduct = { ...p, skuNotify: override, updatedAt: Date.now() };
+  await skuProductsPut(next);
+  await log.info(override ? '商品已切换为自定义通知规则' : '商品已恢复跟随全局通知规则', { productId, title: p.title });
+  return next;
 };

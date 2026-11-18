@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS, type AppSettings, type LogLevel } from './types';
 
 const KEY = 'settings';
 
-export const SETTINGS_SCHEMA_VERSION = 1;
+export const SETTINGS_SCHEMA_VERSION = 2;
 
 const migrate = (raw: Partial<AppSettings> | undefined): AppSettings => {
   const merged: AppSettings = {
@@ -12,6 +12,7 @@ const migrate = (raw: Partial<AppSettings> | undefined): AppSettings => {
     ...(raw ?? {}),
     webhook: { ...DEFAULT_SETTINGS.webhook, ...(raw?.webhook ?? {}) },
     desktopNotify: { ...DEFAULT_SETTINGS.desktopNotify, ...(raw?.desktopNotify ?? {}) },
+    skuNotify: { ...DEFAULT_SETTINGS.skuNotify, ...(raw?.skuNotify ?? {}) },
     schemaVersion: SETTINGS_SCHEMA_VERSION,
   };
   // 未来 schema 升级写在这里：if (raw?.schemaVersion === 1) { ... }
@@ -34,6 +35,7 @@ export const setSettings = async (patch: Partial<AppSettings>): Promise<AppSetti
     ...patch,
     webhook: { ...current.webhook, ...(patch.webhook ?? {}) },
     desktopNotify: { ...current.desktopNotify, ...(patch.desktopNotify ?? {}) },
+    skuNotify: { ...current.skuNotify, ...(patch.skuNotify ?? {}) },
     schemaVersion: SETTINGS_SCHEMA_VERSION,
   };
   await chromeStorageSet(KEY, next);

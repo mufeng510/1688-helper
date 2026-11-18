@@ -17,6 +17,8 @@ import type { InjectedSkuScanResult, ScanOutcome, SkuChange, SkuProduct, SkuSnap
 import { compareSnapshots, CHANGE_TYPE_LABEL } from './compare';
 import { validateScan } from './completeness';
 import { normalizeSkuModel, parseSkuModelFromScript, type NormalizedSku } from './skuModel';
+import { getSettings } from '@/common/settings';
+import { effectiveSkuNotify, filterNotifiableChanges } from './notifyRules';
 
 const log = logger('sku.monitor');
 export const MAX_CONSECUTIVE_FAILURES = 3;
@@ -41,6 +43,8 @@ const summarizeChanges = (changes: SkuChange[]): string => {
   for (const c of out.slice(0, 8)) lines.push(`库存归零：${c.skuName}，${c.before?.stock} → 0`);
   const restored = changes.filter((c) => c.type === 'STOCK_RESTORED');
   for (const c of restored.slice(0, 8)) lines.push(`恢复有货：${c.skuName}，0 → ${c.after?.stock}`);
+  const low = changes.filter((c) => c.type === 'STOCK_LOW');
+  for (const c of low.slice(0, 8)) lines.push(`库存偏低：${c.skuName}，${c.before?.stock} → ${c.after?.stock}`);
   const inc = changes.filter((c) => c.type === 'STOCK_INCREASED');
   if (inc.length) lines.push(`库存增加 ${inc.length} 个 SKU`);
   const price = changes.filter((c) => c.type === 'PRICE_CHANGED');
@@ -178,6 +182,10 @@ export const scanSkuProduct = async (productId: string): Promise<ScanOutcome> =>
     return { productId, valid: true, snapshot, changes: [], baselineJustEstablished: true };
   }
 
+  // 有效通知规则 = 全局设置（migrate 补齐默认）⊕ 商品覆盖（effectiveSkuNotify）
+  const settings = await getSettings();
+  const notifyRules = effectiveSkuNotify(product, settings);
+
   const changes: SkuChange[] = [];
   if (prevValid) {
     const prevSkus: NormalizedSku[] = prevValid.skus.map((s) => ({
@@ -194,6 +202,7 @@ export const scanSkuProduct = async (productId: string): Promise<ScanOutcome> =>
       productId: product.id,
       offerId: product.offerId,
       productTitle: baseProduct.title,
+      lowStockThreshold: notifyRules.lowStockThreshold,
     });
     changes.push(...compared.changes);
     await skuChangesPutMany(changes);
@@ -202,9 +211,10 @@ export const scanSkuProduct = async (productId: string): Promise<ScanOutcome> =>
 
   await skuProductsPut(baseProduct);
 
-  // 通知：仅真实检测到的变化，逐条去重后按商品汇总一条
+  // 通知：按有效规则过滤（静音类型照常记录历史，不发桌面/Webhook），逐条去重后按商品汇总一条
+  const notifiable = filterNotifiableChanges(changes, notifyRules);
   const notifiedFresh: SkuChange[] = [];
-  for (const c of changes) {
+  for (const c of notifiable) {
     const key = changeDedupeKey(c);
     if (await notifiedChangeHas(key)) continue;
     notifiedFresh.push(c);
