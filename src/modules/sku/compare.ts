@@ -81,9 +81,9 @@ export const compareSnapshots = (
       } else if (bStock === 0 && aStock > 0) {
         changes.push(mk('STOCK_RESTORED', before, after, after.name));
       } else if (aStock > bStock) {
-        changes.push(mk('STOCK_INCREASED', before, after, after.name));
+        // 普通数量增加：不记录、不通知（2026-11-18 用户决策）
       } else {
-        changes.push(mk('STOCK_DECREASED', before, after, after.name));
+        // 普通数量减少：不记录、不通知（2026-11-18 用户决策）
       }
       // 跌破低库存阈值：prev > N && 0 < curr <= N（=0 归 STOCK_OUT，不重复）
       if (bStock > lowStockThreshold && aStock <= lowStockThreshold && aStock > 0) {
@@ -105,14 +105,15 @@ export const compareSnapshots = (
   return { changes, matchedBy };
 };
 
-export const CHANGE_TYPE_LABEL: Record<SkuChangeType, string> = {
+/** 展示用标签；key 为字符串以兼容 v0.5.1- 库里的 STOCK_INCREASED/STOCK_DECREASED 存量记录（不再产生） */
+export const CHANGE_TYPE_LABEL: Record<string, string> = {
   SKU_ADDED: '新增 SKU',
   SKU_REMOVED: '删除 SKU',
   SPEC_CHANGED: '规格变化',
-  STOCK_INCREASED: '库存增加',
-  STOCK_DECREASED: '库存减少',
   STOCK_OUT: '库存归零（有货变无货）',
   STOCK_RESTORED: '恢复有货',
   STOCK_LOW: '库存偏低（跌破阈值）',
   PRICE_CHANGED: '价格变化',
+  STOCK_INCREASED: '库存增加（旧版）',
+  STOCK_DECREASED: '库存减少（旧版）',
 };

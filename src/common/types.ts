@@ -34,8 +34,6 @@ export interface SkuNotifySettings {
   lowStock: boolean;
   /** 低库存预警阈值（件）：从 > 阈值 跌破到 ≤ 阈值 时通知一次 */
   lowStockThreshold: number;
-  stockIncreased: boolean;
-  stockDecreased: boolean;
   specChanged: boolean;
   priceChanged: boolean;
 }
@@ -47,9 +45,7 @@ export const DEFAULT_SKU_NOTIFY: SkuNotifySettings = {
   stockRestored: true,
   lowStock: true,
   lowStockThreshold: 5,
-  stockIncreased: false,
-  stockDecreased: false,
-  specChanged: false,
+  specChanged: true,
   priceChanged: false,
 };
 
@@ -83,8 +79,6 @@ export type SkuChangeType =
   | 'SKU_ADDED'
   | 'SKU_REMOVED'
   | 'SPEC_CHANGED'
-  | 'STOCK_INCREASED'
-  | 'STOCK_DECREASED'
   | 'STOCK_OUT'
   | 'STOCK_RESTORED'
   | 'STOCK_LOW'

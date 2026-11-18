@@ -80,8 +80,6 @@ export const renderSettings = async (container: HTMLElement): Promise<void> => {
       <label class="field" style="max-width:280px"><span>低库存阈值（件；从 &gt; 阈值 跌破到 ≤ 阈值 时通知一次）</span>
         <input id="skLowStockThreshold" type="number" min="1" max="9999" value="${settings.skuNotify.lowStockThreshold}" />
       </label>
-      <label class="checkbox"><input id="skStockInc" type="checkbox" ${settings.skuNotify.stockIncreased ? 'checked' : ''} /> 库存增加（静音推荐）</label>
-      <label class="checkbox"><input id="skStockDec" type="checkbox" ${settings.skuNotify.stockDecreased ? 'checked' : ''} /> 库存减少（静音推荐）</label>
       <label class="checkbox"><input id="skSpec" type="checkbox" ${settings.skuNotify.specChanged ? 'checked' : ''} /> 规格变化</label>
       <label class="checkbox"><input id="skPrice" type="checkbox" ${settings.skuNotify.priceChanged ? 'checked' : ''} /> 价格变化（仅记录，不通知推荐静音）</label>
       <div class="row" style="margin-top:8px">
@@ -235,15 +233,13 @@ export const renderSettings = async (container: HTMLElement): Promise<void> => {
     if ($<HTMLInputElement>('#skStockOut').checked) on.push('售罄（变成0）');
     if ($<HTMLInputElement>('#skStockRestored').checked) on.push('补货');
     if ($<HTMLInputElement>('#skLowStock').checked) on.push(`低库存（≤${$<HTMLInputElement>('#skLowStockThreshold').value || 5}件）`);
-    if ($<HTMLInputElement>('#skStockInc').checked) on.push('库存增加');
-    if ($<HTMLInputElement>('#skStockDec').checked) on.push('库存减少');
     if ($<HTMLInputElement>('#skSpec').checked) on.push('规格变化');
     if ($<HTMLInputElement>('#skPrice').checked) on.push('价格变化');
     return on.length ? `当前生效：桌面+Webhook 仅发送 ${on.join(' / ')}` : '当前已全部静音（桌面和 Webhook 都不会发送 SKU 通知）';
   };
   const skSummary = $('#skRuleSummary');
   const syncSkSummary = () => { skSummary.textContent = skLabel(); };
-  for (const id of ['skAdded','skRemoved','skStockOut','skStockRestored','skLowStock','skLowStockThreshold','skStockInc','skStockDec','skSpec','skPrice']) {
+  for (const id of ['skAdded','skRemoved','skStockOut','skStockRestored','skLowStock','skLowStockThreshold','skSpec','skPrice']) {
     $(`#${id}`).addEventListener('change', syncSkSummary);
   }
   syncSkSummary();
@@ -294,8 +290,6 @@ export const renderSettings = async (container: HTMLElement): Promise<void> => {
           const v = Number.parseInt($<HTMLInputElement>('#skLowStockThreshold').value, 10);
           return Number.isFinite(v) ? Math.max(1, Math.min(9999, v)) : DEFAULT_SKU_NOTIFY.lowStockThreshold;
         })(),
-        stockIncreased: $<HTMLInputElement>('#skStockInc').checked,
-        stockDecreased: $<HTMLInputElement>('#skStockDec').checked,
         specChanged: $<HTMLInputElement>('#skSpec').checked,
         priceChanged: $<HTMLInputElement>('#skPrice').checked,
       },

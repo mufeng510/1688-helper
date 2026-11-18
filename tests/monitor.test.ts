@@ -153,40 +153,44 @@ describe('SKU 扫描失败处理', () => {
     expect(await db.count('notificationLog')).toBe(0);
   });
 
-  it('检测到库存减少 → 汇总一条通知；再次扫描相同数据 → 不重复通知（任务书 §12.2-12/13）', async () => {
-    // 默认规则下「库存减少」是静音的——本用例显式开启以验证减少→通知链路
-    await chrome.storage.local.set({ settings: { skuNotify: { stockDecreased: true } } });
+  it('规格变化默认通知（SPEC_CHANGED 默认开启）', async () => {
     await seedProduct({ baselineEstablished: false });
     okTab(50);
     await scanSkuProduct('prd_mon_1'); // 建基准
-    okTab(20); // 黑：50 → 20
-    const r2 = await scanSkuProduct('prd_mon_1');
-    expect(r2.changes.some((c) => c.type === 'STOCK_DECREASED')).toBe(true);
-
-    let db = await getDB();
-    const notifs1 = await db.getAll('notificationLog');
-    const changed1 = notifs1.filter((n) => n.type === 'sku.changed');
-    expect(changed1).toHaveLength(1);
-    expect(changed1[0]?.body).toContain('库存减少');
-
-    okTab(20); // 无变化
-    const r3 = await scanSkuProduct('prd_mon_1');
-    expect(r3.changes).toHaveLength(0);
-    db = await getDB();
-    const changed2 = (await db.getAll('notificationLog')).filter((n) => n.type === 'sku.changed');
-    expect(changed2).toHaveLength(1); // 仍然只有一条
+    // 规格属性字符串变化 → SPEC_CHANGED（同 skuId，黑：颜色=黑 → 颜色=神秘黑色）
+    mockedTab.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        ok: true,
+        offerId: '991485897552',
+        title: '监控测试商品',
+        scriptText:
+          `window.contextPath = {"skuModel":{"skuProps":[{"fid":1,"prop":"颜色","value":[{"name":"神秘黑色"},{"name":"白"}]}],"skuInfoMap":{"神秘黑色":{"specId":"101","skuId":1001,"specAttrs":"颜色=神秘黑色","canBookCount":"50","price":"9.9"},"白":{"specId":"102","skuId":1002,"specAttrs":"颜色=白","canBookCount":"30","price":"10.9"}}}};`,
+      },
+    } as never);
+    const r = await scanSkuProduct('prd_mon_1');
+    expect(r.changes.some((c) => c.type === 'SPEC_CHANGED')).toBe(true);
+    const db = await getDB();
+    const notifs = await db.getAll('notificationLog');
+    const specNotif = notifs.find((n) => n.type === 'sku.changed');
+    expect(specNotif).toBeDefined();
+    expect(specNotif?.body).toContain('规格变化');
   });
 
-  it('默认规则：库存减少被静音（不发通知），但变化记录照常写入 skuChanges', async () => {
+  it('普通库存增减不记录、不通知，但售罄/补货仍生效', async () => {
     await seedProduct({ baselineEstablished: false });
     okTab(50);
     await scanSkuProduct('prd_mon_1'); // 建基准
     okTab(20);
     const r = await scanSkuProduct('prd_mon_1');
-    expect(r.changes.some((c) => c.type === 'STOCK_DECREASED')).toBe(true); // 检测到
+    expect(r.changes).toHaveLength(0); // 50→20（黑）、30（白）都只是普通数量变化 → 不记录
     const db = await getDB();
-    expect((await db.getAll('skuChanges')).some((c) => c.type === 'STOCK_DECREASED')).toBe(true); // 记录在案
-    expect((await db.getAll('notificationLog')).filter((n) => n.type === 'sku.changed')).toHaveLength(0); // 不通知
+    expect((await db.getAll('skuChanges'))).toHaveLength(0);
+    expect((await db.getAll('notificationLog')).filter((n) => n.type === 'sku.changed')).toHaveLength(0);
+
+    okTab(0); // 黑：20→0 → 售罄
+    const r2 = await scanSkuProduct('prd_mon_1');
+    expect(r2.changes.some((c) => c.type === 'STOCK_OUT')).toBe(true);
   });
 
   it('低库存预警：50→6 不提醒；6→5 提醒一次；再 5→4 不重复提醒', async () => {

@@ -22,8 +22,6 @@ export const CHANGE_NOTIFY_KEY: Record<SkuChangeType, keyof SkuNotifySettings> =
   SKU_ADDED: 'added',
   SKU_REMOVED: 'removed',
   SPEC_CHANGED: 'specChanged',
-  STOCK_INCREASED: 'stockIncreased',
-  STOCK_DECREASED: 'stockDecreased',
   STOCK_OUT: 'stockOut',
   STOCK_RESTORED: 'stockRestored',
   STOCK_LOW: 'lowStock',

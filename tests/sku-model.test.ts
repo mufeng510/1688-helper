@@ -72,11 +72,11 @@ describe('快照比较', () => {
     expect(types(base, base.slice(0, 1))).toContain('SKU_REMOVED');
   });
 
-  it('检测库存增加与减少', () => {
+  it('普通库存增减不产生变化记录（2026-11-18 决策：不上架/下架/售罄/补货/低库存的变化不需要）', () => {
     const inc = base.map((s) => (s.skuId === '1001' ? { ...s, stock: 150, inStock: true } : s));
-    expect(types(base, inc)).toContain('STOCK_INCREASED');
+    expect(types(base, inc)).toEqual([]);
     const dec = base.map((s) => (s.skuId === '1001' ? { ...s, stock: 40, inStock: true } : s));
-    expect(types(base, dec)).toContain('STOCK_DECREASED');
+    expect(types(base, dec)).toEqual([]);
   });
 
   it('检测库存归零与恢复', () => {

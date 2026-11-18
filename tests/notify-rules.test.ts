@@ -57,18 +57,18 @@ describe('STOCK_LOW（低库存预警）', () => {
 });
 
 describe('全局 + 商品覆盖 → 有效规则', () => {
-  const settings = { skuNotify: { ...DEFAULT_SKU_NOTIFY, stockDecreased: true, lowStockThreshold: 5 } };
+  const settings = { skuNotify: { ...DEFAULT_SKU_NOTIFY, lowStockThreshold: 5 } };
 
   it('无覆盖时等于全局默认', () => {
     const r = effectiveSkuNotify({}, settings);
-    expect(r.stockDecreased).toBe(true);
+    expect(r.specChanged).toBe(true); // 全局默认 true（2026-11-18 起规格变化默认通知）
     expect(r.added).toBe(true);
     expect(isSkuNotifyCustomized({})).toBe(false);
   });
 
   it('商品覆盖优先于全局；未覆盖字段仍跟随全局', () => {
-    const r = effectiveSkuNotify({ skuNotify: { stockDecreased: false, lowStockThreshold: 20 } }, settings);
-    expect(r.stockDecreased).toBe(false); // 覆盖
+    const r = effectiveSkuNotify({ skuNotify: { specChanged: false, lowStockThreshold: 20 } }, settings);
+    expect(r.specChanged).toBe(false); // 商品覆盖回 false（优先级高于全局 true）
     expect(r.lowStockThreshold).toBe(20); // 覆盖
     expect(r.added).toBe(true);           // 跟随全局
   });
@@ -79,22 +79,22 @@ describe('全局 + 商品覆盖 → 有效规则', () => {
   });
 
   it('filterNotifiableChanges 只留下规则中开启的类型，不修改入参数组', () => {
-    const changes = [{ type: 'STOCK_DECREASED' }, { type: 'SKU_ADDED' }, { type: 'STOCK_LOW' }] as const;
+    const changes = [{ type: 'SPEC_CHANGED' }, { type: 'SKU_ADDED' }, { type: 'STOCK_LOW' }] as const;
     const kept = filterNotifiableChanges([...changes], effectiveSkuNotify({}, settings));
-    expect(kept.map((c) => c.type)).toEqual(['STOCK_DECREASED', 'SKU_ADDED', 'STOCK_LOW']);
-    const quiet = filterNotifiableChanges([...changes], { ...DEFAULT_SKU_NOTIFY, stockDecreased: false });
+    expect(kept.map((c) => c.type)).toEqual(['SPEC_CHANGED', 'SKU_ADDED', 'STOCK_LOW']);
+    const quiet = filterNotifiableChanges([...changes], { ...DEFAULT_SKU_NOTIFY, specChanged: false });
     expect(quiet.map((c) => c.type)).toEqual(['SKU_ADDED', 'STOCK_LOW']);
   });
 });
 
-describe('settings 迁移 v1 → v2', () => {
-  it('老用户（无 skuNotify 的 v1 数据）自动补默认规则并升级到 v2', async () => {
+describe('settings 迁移 v1 → v3', () => {
+  it('老用户（无 skuNotify 的 v1 数据）自动补默认规则并升级到 v3', async () => {
     (globalThis as { __clearChromeStorage?: () => void }).__clearChromeStorage?.();
     await chrome.storage.local.set({
       settings: { schemaVersion: 1, skuScanIntervalMinutes: 120 },
     });
     const s = await getSettings();
-    expect(s.schemaVersion).toBe(2);
+    expect(s.schemaVersion).toBe(3);
     expect(s.skuNotify).toEqual(DEFAULT_SKU_NOTIFY);
     expect(s.skuScanIntervalMinutes).toBe(120);
   });
@@ -102,12 +102,14 @@ describe('settings 迁移 v1 → v2', () => {
   it('已存的 skuNotify 覆盖字段被保留', async () => {
     (globalThis as { __clearChromeStorage?: () => void }).__clearChromeStorage?.();
     await chrome.storage.local.set({
-      settings: { schemaVersion: 1, skuNotify: { stockDecreased: true, lowStockThreshold: 99 } },
+      settings: { schemaVersion: 2, skuNotify: { specChanged: false, lowStockThreshold: 99, stockIncreased: true, stockDecreased: true } },
     });
     const s = await getSettings();
-    expect(s.skuNotify.stockDecreased).toBe(true);
+    expect(s.skuNotify.specChanged).toBe(false); // 已存覆盖保留
     expect(s.skuNotify.lowStockThreshold).toBe(99);
     expect(s.skuNotify.added).toBe(true); // 其余字段取默认
+    expect(s.skuNotify).not.toHaveProperty('stockIncreased'); // v2→v3 死键被清理
+    expect(s.skuNotify).not.toHaveProperty('stockDecreased');
   });
 });
 
@@ -120,9 +122,7 @@ describe('默认规则内容', () => {
       stockRestored: true,
       lowStock: true,
       lowStockThreshold: 5,
-      stockIncreased: false,
-      stockDecreased: false,
-      specChanged: false,
+      specChanged: true,
       priceChanged: false,
     });
     expect(DEFAULT_SETTINGS.skuNotify).toEqual(DEFAULT_SKU_NOTIFY);

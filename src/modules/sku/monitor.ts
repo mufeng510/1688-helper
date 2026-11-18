@@ -37,16 +37,12 @@ const summarizeChanges = (changes: SkuChange[]): string => {
   if (removed) lines.push(`删除 ${removed} 个 SKU`);
   const spec = count(['SPEC_CHANGED']);
   if (spec) lines.push(`规格变化 ${spec} 个`);
-  const dec = changes.filter((c) => c.type === 'STOCK_DECREASED');
-  for (const c of dec.slice(0, 8)) lines.push(`库存减少：${c.skuName}，${c.before?.stock} → ${c.after?.stock}`);
   const out = changes.filter((c) => c.type === 'STOCK_OUT');
   for (const c of out.slice(0, 8)) lines.push(`库存归零：${c.skuName}，${c.before?.stock} → 0`);
   const restored = changes.filter((c) => c.type === 'STOCK_RESTORED');
   for (const c of restored.slice(0, 8)) lines.push(`恢复有货：${c.skuName}，0 → ${c.after?.stock}`);
   const low = changes.filter((c) => c.type === 'STOCK_LOW');
   for (const c of low.slice(0, 8)) lines.push(`库存偏低：${c.skuName}，${c.before?.stock} → ${c.after?.stock}`);
-  const inc = changes.filter((c) => c.type === 'STOCK_INCREASED');
-  if (inc.length) lines.push(`库存增加 ${inc.length} 个 SKU`);
   const price = changes.filter((c) => c.type === 'PRICE_CHANGED');
   if (price.length) lines.push(`价格变化 ${price.length} 个（仅记录）`);
   return lines.join('\n');

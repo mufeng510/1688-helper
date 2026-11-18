@@ -19,8 +19,6 @@ const ruleSummary = (rules: SkuNotifySettings): string => {
   if (rules.stockOut) on.push('售罄');
   if (rules.stockRestored) on.push('补货');
   if (rules.lowStock) on.push(`低库存（≤${rules.lowStockThreshold}件）`);
-  if (rules.stockIncreased) on.push('库存增加');
-  if (rules.stockDecreased) on.push('库存减少');
   if (rules.specChanged) on.push('规格变化');
   if (rules.priceChanged) on.push('价格变化');
   return on.length ? on.join(' / ') : '全部静音';
@@ -46,8 +44,6 @@ const renderNotifySection = (p: ListedProduct, effective: SkuNotifySettings, cus
         <label class="field" style="max-width:260px"><span>低库存阈值（件）</span>
           <input id="ov_lowStockThreshold" type="number" min="1" max="9999" value="${effective.lowStockThreshold}" />
         </label>
-        <label class="checkbox"><input class="ov" data-k="stockIncreased" type="checkbox" ${effective.stockIncreased ? 'checked' : ''} /> 库存增加</label>
-        <label class="checkbox"><input class="ov" data-k="stockDecreased" type="checkbox" ${effective.stockDecreased ? 'checked' : ''} /> 库存减少</label>
         <label class="checkbox"><input class="ov" data-k="specChanged" type="checkbox" ${effective.specChanged ? 'checked' : ''} /> 规格变化</label>
         <label class="checkbox"><input class="ov" data-k="priceChanged" type="checkbox" ${effective.priceChanged ? 'checked' : ''} /> 价格变化</label>
         <div class="row" style="margin-top:8px">
@@ -107,7 +103,7 @@ export const renderSku = async (container: HTMLElement): Promise<void> => {
     const products = (await listSkuProducts()) as ListedProduct[];
     container.innerHTML = `
       <h1 class="page-title">SKU 监控</h1>
-      <div class="page-sub">监控商品 SKU 的新增/删除/规格/库存/价格变化；首次扫描只建基准，第二次有效扫描起比较并通知。</div>
+      <div class="page-sub">监控 SKU 上架/下架/规格/售罄/补货/低库存；普通库存数量增减不记录、不通知；首次扫描只建基准，第二次有效扫描起比较并按通知规则通知。</div>
       <div class="info-box">添加商品：打开 1688 商品详情页 → 点击浏览器工具栏的「1688 智能助手」图标 →「添加监控」。</div>
       <div class="card">
         <div class="row" style="margin-bottom:10px">
@@ -207,8 +203,6 @@ export const renderSku = async (container: HTMLElement): Promise<void> => {
                   stockRestored: ov('stockRestored'),
                   lowStock: ov('lowStock'),
                   lowStockThreshold: Number.isFinite(th) ? Math.max(1, Math.min(9999, th)) : 5,
-                  stockIncreased: ov('stockIncreased'),
-                  stockDecreased: ov('stockDecreased'),
                   specChanged: ov('specChanged'),
                   priceChanged: ov('priceChanged'),
                 };
