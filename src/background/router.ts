@@ -27,18 +27,31 @@ const checkLogin = async (): Promise<{ loggedIn: boolean; checkedAt: number }> =
   try {
     tab = await chrome.tabs.create({ url: 'https://work.1688.com/home/buyer.htm', active: false });
     loggedIn = await new Promise<boolean>((resolve) => {
-      const timer = setTimeout(() => { chrome.tabs.onUpdated.removeListener(listener); resolve(false); }, 15000);
-      const listener = (tabId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => {
+      const done = (value: boolean): void => {
+        clearTimeout(timer);
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve(value);
+      };
+      const timer = setTimeout(() => done(false), 20000);
+      const listener = (tabId: number, changeInfo: chrome.tabs.OnUpdatedInfo, updatedTab: chrome.tabs.Tab) => {
         if (tabId !== tab?.id) return;
-        const url = changeInfo.url ?? '';
-        if (url.includes('login')) {
-          clearTimeout(timer);
-          chrome.tabs.onUpdated.removeListener(listener);
-          resolve(false);
-        } else if (changeInfo.status === 'complete' && url.includes('work.1688.com')) {
-          clearTimeout(timer);
-          chrome.tabs.onUpdated.removeListener(listener);
-          resolve(true);
+        // changeInfo.url 只在 URL 变化的那次事件里有值；complete 事件通常只有 status。
+        // 统一以「本次事件能看到的最新 URL」为准：changeInfo.url → updatedTab.url。
+        const url = changeInfo.url ?? updatedTab?.url ?? '';
+        if (/login/i.test(url)) {
+          done(false);
+          return;
+        }
+        if (changeInfo.status === 'complete') {
+          // complete 时 changeInfo.url 往往为空，必须读标签页当前真实地址
+          if (url) {
+            done(url.includes('work.1688.com'));
+            return;
+          }
+          chrome.tabs.get(tabId).then(
+            (t) => done(!!t?.url && t.url.includes('work.1688.com')),
+            () => done(false),
+          );
         }
       };
       chrome.tabs.onUpdated.addListener(listener);

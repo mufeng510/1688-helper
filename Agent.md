@@ -52,6 +52,10 @@ npm run build:content  # 仅重打 content script（改 import-1688.ts 时够用
 
 ## 5. 已完成
 
+- [x] **Popup 增加「📥 导入 1688」按钮 + 工具栏点击兜底注入（2026-11-17 晚）**：因 Edge 该扩展站点授权会被重置导致声明式 content_script 不注入，popup 打开时主动 `chrome.scripting.executeScript({files:['pages/inject/import-1688.js']})` 兜底（脚本自带防重 guard）；新增「📥 导入 1688」按钮：注入后程序化点击 FAB 直接打开导入确认卡，失败时显示明确报错（不再能让 FAB 永远静默缺失）。
+- [x] **Edge 商店自动发布流水线（2026-11-18）**：`.github/workflows/publish-edge.yml`（仅 tag `v*.*.*` 触发）+ `scripts/publish-edge.mjs`（Update REST API v1.1：upload→轮询 Succeeded→publish→轮询 Succeeded，支持 JSON/plain-text notes 双兜底，`--dry-run` 可本地校验）。依赖仓库 secrets：`EDGE_CLIENT_ID` / `EDGE_API_KEY` / `EDGE_PRODUCT_ID`（v1.1 用 ApiKey 头，v1 的 access-token 方式已废弃）。本机无 `zip` 命令，workflow 用 python3 zipfile 打包 dist/（根为 dist 内容）并校验 zip 内 manifest 版本 == tag。⚠️ 首次发布必须走 Partner Center 手动创建产品；API 只能更新已发布产品。版本号需同时递增 package.json 与 public/manifest.json（workflow 会校验 tag 一致性）。商店 v0.5.1 尚未提交（等打 tag v0.5.1 推送后由 Actions 完成）。
+- [x] **Edge「授权」UI 三处显示不一致（2026-11-17 实测）**：详情页「自动允许在以下站点上访问」主开关显示 ON、工具栏拼图菜单站点级开关显示「允许在此网站上使用」——而详情页里那条记住的 `*://*.1688.com/*` 行是灰/关且不可点，此时扩展实际**无**站点授权（content script 不注入、FAB 不显示）。**只有详情页「记住的站点行」是可靠的授权信号；主开关和菜单开关都会显示「允许」。**修复：主开关 关→开 会重新应用记住的授权（实测恢复后 FAB 正常注入，a11y 快照 label 可见）。商店安装也不能保证安装即授权（本 profile 两个拷贝都落到零授权），原因无法溯源；商店版已被用户删除，仅剩解压版。**2026-11-17 晚再验证：扩展「重新加载」会重置该授权，重建 dist + reload 后 content script 在所有标签页都不注入（cache-bust 强刷也无效）——每次 reload 后都要重做 关→开 并重新强刷验证。**
+- [x] **检查登录状态误报未登录（2026-11-17 修复）**：`router.ts checkLogin` 依赖 `changeInfo.url` 判 URL，但 `complete` 事件不带 `url`（`url` 只在 URL 变化的那次事件里有值），导致已登录时永远 resolve(true) 不了 → 15s 超时 → 显示「登录失效」。修复：以 `changeInfo.url → updatedTab.url` 为准 + complete 无 URL 时 `chrome.tabs.get` 读真实地址判定，超时 20s；已 `npm run typecheck`、`npm test`（94/94）、`npm run build`，解压版扩展已点「重新加载」。**Edge 商店版仍是旧代码**（商店只发 0.5.0，未包含本修复）；管理页「1688 登录状态」徽标读的是 IndexedDB 里的 `lastLoginStatus`，需在修复后再点一次「检查 1688 登录状态」才会从「登录失效」翻成「已登录」。
 - [x] 基础框架：MV3 manifest、SW 调度（alarms）、持久任务队列（租约/重试/恢复）、后台标签管理、IndexedDB、日志、配置、双通道通知（桌面+Webhook+重试+去重）、数据导出/导入。
 - [x] 管理界面（总览/理赔/SKU 监控/任务/设置/日志/数据与备份）与 popup。
 - [x] SKU 模块：添加（popup/管理页）、列表/暂停/恢复/立即扫描/详情（SKU 当前状态、历史变化、历史快照）、基准规则、完整性校验、连续失败自动暂停并通知、通知聚合与去重。
@@ -93,21 +97,21 @@ npm run build:content  # 仅重打 content script（改 import-1688.ts 时够用
 9. 桌面通知 e2e 真实触发：notificationLog 捕获 `claim.found`（desktop/sent，10:57 模拟模式发现 6 笔揽收超时），证明桌面通道在真实浏览器可用。
 10. 临时隔离实例验证（2026-11-15）：Google Chrome 生产版**忽略** `--load-extension`（日志 `--load-extension is not allowed in Google Chrome`），只能走 GUI「加载未打包」；临时实例两次被用户关闭，已删除（`/tmp/opencode/e2e-profile*`，各 153MB）。
 11. **MV3 content_scripts 是 classic script**：不能引用 vite 代码分割的 ESM chunk（Chrome SyntaxError）。模块 D 的 content script 用 `vite.content.config.ts` 单独打包为自包含文件，且必须在主构建（`emptyOutDir`）之后执行；曾把 import 留在 content script 里，产物直接不可用。
-12. **chrome://extensions 的 ↻ 重新加载按钮坐标别靠猜**（1920×1080 下 ≈ (732, 537)，以卡片「详情/移除」同一行为准）；连续两次点空（y 偏高）导致「SW 似乎没更新」的误判——实际是扩展从未被重载。验证加载的是否新版本：看卡片版本号（0.1.0→0.2.0 只在重载后变化）。
+12. **chrome://extensions 的 ↻ 重新加载按钮坐标别靠猜**（1920×1080 下 ≈ (732, 537)，以卡片「详情/移除」同一行为准）；连续两次点空（y 偏高）导致「SW 似乎没更新」的误判——实际是扩展从未被重载。验证加载的是否新版本：看卡片版本号（0.1.0→0.2.0 只在重载后变化）。Edge 列表页搜索框（`edge://extensions/?q=1688`）能同时列出多个同名实例；解压版卡片有「重新加载」按钮。Edge 详情页「站点访问权限」的灰/关行**不可点**，只能靠「自动允许在以下站点上访问」主开关 关→开 重新应用授权（2026-11-17 实测：恢复后新开标签 FAB 注入正常）。
 13. ~~揽收超时下拉是 toggle 语义~~（2026-11-16 实证推翻）：「揽收超时」是「待收货」Tab 的 **hover tooltip**（`q-tooltip-content.tabs-tooltip` 常驻 DOM、`display:none`、quark 渲染）里的 `.tooltip-tab`（`data-tracker` 尾缀 `_CTMO`，计数 1）。**点击后订单列表 iframe 整页导航到 `buyer-order-list.html?…&tradeStatus=CTMO&page=1`**，注入脚本上下文销毁——原地轮询必然超时（11-15/16 多轮「未采集到任何 frame 结果」即因此）。修复：两阶段注入（Phase A `location.assign` 改写 `tradeStatus`/`page` 触发导航；Phase B 轮询读 CTMO 视图，`「共 N 条」` 交叉校验保留）。
 14. **AI 订单巡检横幅「N 笔揽收超时」与筛选 CTMO 结果数不一致**（曾见 3 笔 vs 1 笔），原因未确认；不以此数据做任何自动化决策。
 21. **allFrames 注入结果序列化坑（2026-11-16 修复）**：`scripting.executeScript` 的 allFrames 结果中，「无返回值」的 frame 传回 SW 后是 `null`（不是 `undefined`）。`find(v => v !== undefined)` 会选中 null（顶层 frame），CTMO 真实结果（ordersLen=1）被当作「没有 frame 输出」。修复：`injectIntoTab` 取第一个 `v != null`；诊断日志 `type` 区分 null/undefined。**教训：跨进程序列化不保留 undefined，判空一律 `v != null`。**
 15. **订单行内无订单总额**（仅单价/数量）；订单金额只能从「我申请的理赔」列表回读补缺（`resultSync`，只补缺不覆盖）。
 16. **两次 browse 驱动的额外标签页被用户关闭**（订单详情/理赔申请页/理赔列表），且会话默认页被替换为 about:blank——用户在该 Edge 里主动清理标签页；Agent 自行打开的标签页用完即关，勿依赖其存活。
 17. **真实订单已有理赔记录且平台暂不受理手动申请**（理赔申请页显示「未到承诺发货时间，暂不支持理赔」+「当前订单存在已申请的理赔记录」）。LiveClaimExecutor 因此只读探测并一律返回 needs_human；**不存在可自动提交的真实场景，提交成功识别未经验证，任何版本不得擅自启用自动提交。**
-18. **2026-11-15 用户 Chrome 两次自行消失**（14:23、14:31，均在我 GUI 自动化期间；原因未知，可能是用户介入或 Chrome 崩溃）。教训：不要无人值守 GUI 自动化用户正在用的浏览器；交付可实测步骤让用户自己点，或事先获得明确许可。另：每次全新启动 Chrome 都会弹「要恢复页面吗？」，不替用户点「恢复」。
+18. **2026-11-15 用户 Chrome 两次自行消失**（14:23、14:31，均在我 GUI 自动化期间；原因未知，可能是用户介入或 Chrome 崩溃）。教训：不要无人值守 GUI 自动化用户正在用的浏览器；交付可实测步骤让用户自己点，或事先获得明确许可。另：每次全新启动 Chrome 都会弹「要恢复页面吗？」，不替用户点「恢复」。**2026-11-17 补：不要把用户借出的标签页导航到别的地址**（为查扩展状态把商品标签页导航到 edge://extensions，用户随后自行关闭了多个标签页）；查浏览器内部页面时只开新标签页，并在用完后恢复/关闭。
 19. **工作台不按 offer_id 去重（实测 2026-11-15）**：同一 offer 重复导入会创建重复商品（调试实例内 offer 991485897552 共 4 件：id 2/4/5/6）。扩展「确认导入」有 `submitting` 防重锁，id 5/6 为用户两次独立操作所致，非扩展 bug。若需要去重，应由工作台侧实现（扩展侧不做干预）；使用前确认预期行为。
 20. **匿名 `{html}` ingest 422（实测）**：工作台 ingest 的 html 路径无法解析 1688 内嵌 JS 字面量（含未加引号数字键），返回 422。扩展真实链路走 `window.context` + JSON.stringify，不受影响；不要为「HTML 兜底」路径做额外适配，除非工作台侧增强解析。
 
 ## 8. 用户环境事实
 
 - Debian 13，用户 Chrome（已登录 1688 买家账号①），1688 买家工作台：`https://work.1688.com/home/buyer.htm?_path_=buyer2017Base/2017buyerbase_trade/buyList`
-- 本机 Edge（MiWiFi-RA72-srv；browse 扩展已连接，账号②，与 Chrome 账号不同，2026-11-15）：该账号工作台「待收货」下拉 →「揽收超时」有 1 笔订单（48h 发货承诺、卖家约定；订单已含平台理赔记录，申请页「未到承诺发货时间，暂不支持理赔」）。**该 Edge 已加载 1688-helper 扩展（v0.5.0 起，2026-11-16 端到端验证期间多次手动重载）**。
+- 本机 Edge（MiWiFi-RA72-srv；browse 扩展已连接，账号②，与 Chrome 账号不同，2026-11-15）：该账号工作台「待收货」下拉 →「揽收超时」有 1 笔订单（48h 发货承诺、卖家约定；订单已含平台理赔记录，申请页「未到承诺发货时间，暂不支持理赔」）。**该 Edge 已加载 1688-helper 扩展（v0.5.0）**，且**有两份同名拷贝**：解压版（ID `bjnbhbmdnhdnplflhmdbinflhdkfcine`，跑 dist，卡片带黄 ! 徽标、有「重新加载」按钮）与商店版（ID `endbhiafkoagbkhodplohhinabejagje`，「来源 Microsoft Edge 扩展应用商店」）；两者均启用，站点访问权限需各自授权（商店版 0.5.0 不含 2026-11-17 登录检查修复）。
 - 本地调试工作台（模块 D 验证用，**一次性**）：Base URL `http://127.0.0.1:8081`；启动 `docker compose -f /tmp/opencode/ext-debug-compose.yaml up -d`；清空 `... down -v`；数据目录 `/tmp/opencode/ext-debug-data`（不入库）；连接信息 `/tmp/opencode/ext-debug.json`（含 manage Token「ext-debug-import-test-2」，**勿入库/勿粘贴到聊天**）。AI 服务商未配置，`/api/health` 常态 `degraded` 属正常。
 - ~~真实揽收超时订单：无~~ → 已有 1 笔（账号②，Edge），见上。
 - 「揽收超时」入口（2026-11-15 截图确认）：订单列表 →「待收货」下拉 →「正常待收 N / 揽收超时 M」。

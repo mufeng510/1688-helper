@@ -1,6 +1,6 @@
 {
   "name": "1688-helper",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "description": "1688 智能助手 Chrome 扩展（个人自用）：SKU 变化监控 + 揽收超时自动理赔框架",
   "type": "module",

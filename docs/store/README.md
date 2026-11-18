@@ -21,14 +21,23 @@ GitHub 公开 URL（隐私表单 / listing 需要）：
 
 ### 公共前置
 
-- `npm run build`（dist/ 已是 v0.5.0，若改代码需重新 build 再打包）
+- `npm run build`（dist/ 已是 v0.5.1，若改代码需重新 build 再打包）
 - 打包扩展 zip（根为 dist/ 内容，不含外层目录）：
 
 ```bash
-cd dist && zip -r ../1688-helper-v0.5.0.zip . && cd ..
+python3 - <<'EOF'
+import zipfile, os
+with zipfile.ZipFile('1688-helper-v0.5.1.zip', 'w', zipfile.ZIP_DEFLATED) as z:
+    for root, _, files in os.walk('dist'):
+        for f in files:
+            if not f.startswith('.'):
+                full = os.path.join(root, f)
+                z.write(full, os.path.relpath(full, 'dist'))
+print('done')
+EOF
 ```
 
-（zip 不提交到 git；如需可放 /tmp/opencode/1688-helper-v0.5.0.zip。）
+（zip 不提交到 git；如需可放 /tmp/opencode/1688-helper-v0.5.1.zip。）
 
 ### Chrome Web Store
 
@@ -48,10 +57,23 @@ cd dist && zip -r ../1688-helper-v0.5.0.zip . && cd ..
 
 ## 版本发布流程（之后每版）
 
-1. 更新 `public/manifest.json` 版本号（semver；当前 0.5.0）并 `npm run build`；
-2. 更新 zip → 两个商店各提交新版本；
+### Edge Add-ons：自动（推荐）
+
+1. 递增 `public/manifest.json` 与 `package.json` 的 version（保持一致；semver，如 0.5.1），`npm run build`；
+2. 提交并推送 main；
+3. 打 tag 并推送：`git tag v0.5.1 && git push origin v0.5.1`；
+4. GitHub Actions（`.github/workflows/publish-edge.yml`）自动执行：`npm ci` → typecheck → 单测 → build → 校验 tag 与 manifest/package.json 版本一致 → 打包 zip → 调 Edge Update REST API v1.1（upload → 等待 Succeeded → publish → 等待 Succeeded）；
+5. 需要仓库 secrets（repo → Settings → Secrets and variables → Actions）：`EDGE_CLIENT_ID` / `EDGE_API_KEY` / `EDGE_PRODUCT_ID`（Partner Center → Publish API 页生成；API key 有过期时间，过期后 Actions 会 401，需要重新生成并更新 secret）；
+6. 提交 notes 自动取 tag 指向的提交信息；审核一般数小时至数天；若已有 In Review 提交，API 会返回 `InProgressSubmission` 错误，等当前审核结束后再打 tag。
+
+本地如需手动发布（调试用）：`node scripts/publish-edge.mjs <zip> [notes]`（需先在本地导出三个环境变量；`--dry-run` 只校验环境，不发网络请求）。
+
+### Chrome Web Store：手动
+
+1. 更新 `public/manifest.json` 版本号（semver）并 `npm run build`；
+2. 更新 zip → 上传到 Chrome Web Store 控制台；
 3. 更新 `docs/store/` 文案中的变更点（listing「版本与更新」段，如需要）；
-4. git 打 tag（如 v0.5.0）便于回溯。
+4. git 打 tag（如 v0.5.1）便于回溯。
 
 ## 尚未完成（需你操作/决定）
 
