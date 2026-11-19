@@ -10,7 +10,7 @@ import { metaSet } from '@/common/db';
 import { scanOverdueOrders } from '@/modules/claim/claim';
 import { tasksGet, tasksPut } from '@/common/db';
 import { previewImport, executeImportRequest } from '@/modules/import1688/service';
-import { checkHealth, Import1688Error } from '@/modules/import1688/client';
+import { checkConnection, Import1688Error } from '@/modules/import1688/client';
 import { getImport1688Settings } from '@/modules/import1688/settings';
 import { normalizeBaseUrl } from '@/modules/import1688/payload';
 import type { MessageRequest, MessageResponse } from '@/common/types';
@@ -105,7 +105,11 @@ export const handleMessage = async (msg: MessageRequest, sender?: chrome.runtime
         try {
           return ok(await previewImport(tabId));
         } catch (err) {
-          if (err instanceof Import1688Error) return fail(err.message, err.status);
+          if (err instanceof Import1688Error) {
+            // SW 侧留一条诊断日志（管理页 → 日志可见）：网络请求由后台发出，页面 DevTools 看不到
+            await log.warn('1688 导入：预览失败', { code: err.code, status: err.status, message: err.message });
+            return fail(err.message, err.status);
+          }
           throw err;
         }
       }
@@ -113,12 +117,18 @@ export const handleMessage = async (msg: MessageRequest, sender?: chrome.runtime
         try {
           return ok(await executeImportRequest(msg.request));
         } catch (err) {
-          if (err instanceof Import1688Error) return fail(err.message, err.status);
+          if (err instanceof Import1688Error) {
+            await log.warn('1688 导入：提交失败', { code: err.code, status: err.status, message: err.message });
+            return fail(err.message, err.status);
+          }
           throw err;
         }
       }
-      case 'import1688.testConnection':
-        return ok(await checkHealth(msg.baseUrl ?? (await getImport1688Settings()).baseUrl));
+      case 'import1688.testConnection': {
+        // 鉴权探测：只探 /api/health 无法判断 Token 是否有效，连同 Token 一起验证
+        const saved = await getImport1688Settings();
+        return ok(await checkConnection(msg.baseUrl ?? saved.baseUrl, saved.token));
+      }
       case 'import1688.openProduct': {
         const id = Number(msg.id);
         if (!Number.isInteger(id) || id <= 0) return fail('商品 id 非法');

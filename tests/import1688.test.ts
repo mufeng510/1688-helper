@@ -13,7 +13,7 @@ import {
   MAX_IMAGES,
   MAX_BLOCKS,
 } from '@/modules/import1688/payload';
-import { ingest, executeImport, checkHealth, checkByOffer, Import1688Error } from '@/modules/import1688/client';
+import { ingest, executeImport, checkHealth, checkByOffer, checkConnection, Import1688Error } from '@/modules/import1688/client';
 import type { Import1688Preview } from '@/modules/import1688/types';
 
 describe('normalizeBaseUrl', () => {
@@ -293,6 +293,52 @@ describe('client 错误映射', () => {
     expect((await checkHealth('http://127.0.0.1:8080')).ok).toBe(false);
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('conn refused'); }));
     expect((await checkHealth('http://127.0.0.1:8080')).ok).toBe(false);
+  });
+  it('checkConnection：健康 OK + 探测 by-offer 带 Bearer；200 → Token 有效', async () => {
+    const spy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/health')) return jsonResponse(200, { status: 'ok' });
+      return jsonResponse(200, { exists: false });
+    });
+    vi.stubGlobal('fetch', spy);
+    const r = await checkConnection('http://127.0.0.1:8080', 'tok123');
+    expect(r.ok).toBe(true);
+    expect(r.message).toContain('Token 有效');
+    const [, probe] = spy.mock.calls[1] as unknown as [string, RequestInit];
+    expect((probe.headers as Record<string, string>)['Authorization']).toBe('Bearer tok123');
+    expect(String(spy.mock.calls[1]?.[0])).toContain('/api/products/import/1688/by-offer/123456');
+  });
+  it('checkConnection：健康 OK 但无 Token → 失败并提示未设置', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(200, { status: 'ok' })));
+    const r = await checkConnection('http://127.0.0.1:8080');
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('尚未设置');
+  });
+  it('checkConnection：健康 OK + by-offer 401 → 无效 Token（带工作台原话）', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/health')) return jsonResponse(200, { status: 'ok' });
+      return jsonResponse(401, { detail: 'Token 无效或已撤销' });
+    }));
+    const r = await checkConnection('http://127.0.0.1:8080', 'tok');
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain('Token 无效或已撤销');
+  });
+  it('checkConnection：by-offer 403 → 权限不足；404 → 无法验证但视为可达；health 失败 → 失败', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/health')) return jsonResponse(200, { status: 'ok' });
+      return jsonResponse(403, { detail: 'requires manage' });
+    }));
+    expect((await checkConnection('http://127.0.0.1:8080', 'tok')).message).toContain('manage 权限');
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/health')) return jsonResponse(200, { status: 'ok' });
+      return jsonResponse(404, {});
+    }));
+    expect((await checkConnection('http://127.0.0.1:8080', 'tok')).ok).toBe(true);
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse(503, {})));
+    expect((await checkConnection('http://127.0.0.1:8080', 'tok')).ok).toBe(false);
   });
   it('fetch 被调用时带 Authorization 头且不带 credentials', async () => {
     const spy = vi.fn(async () => jsonResponse(200, { ok: true }));

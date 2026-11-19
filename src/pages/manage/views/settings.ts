@@ -112,7 +112,7 @@ export const renderSettings = async (container: HTMLElement): Promise<void> => {
         <button id="wsTestBtn" class="btn">连接测试</button>
         <span id="wsResult" class="hint"></span>
       </div>
-      <p class="hint">Token 仅保存在本机 chrome.storage.local，不明文回显、不写入日志。请求由扩展后台发出，不受页面混合内容/CORS 限制，但仍需「授权工作台域名」放行私有地址（http 局域网也需要）。若 https 商品页 → http 工作台仍被浏览器拦截，请给工作台套 https，或在 chrome://flags 放行本地网络访问。使用说明见工作台仓库 <a href="https://github.com/mufeng510/xhs-workstation/blob/main/docs/import-1688.md" target="_blank" rel="noreferrer">docs/import-1688.md</a>（D-13 变更对齐）。</p>
+      <p class="hint">Token 仅保存在本机 chrome.storage.local，不明文回显、不写入日志。请求由扩展后台（service worker）发出，<strong>页面 DevTools 看不到这些请求</strong>——诊断请看「管理页 → 日志」。「连接测试」会：① 探测 /api/health（可达性）；② 用当前 Token 调 by-offer 只读接口（鉴权有效性）——测试成功才说明 Token 真的可用。仍需「授权工作台域名」放行私有地址（http 局域网也需要）。若 https 商品页 → http 工作台仍被浏览器拦截，请给工作台套 https，或在 chrome://flags 放行本地网络访问。使用说明见工作台仓库 <a href="https://github.com/mufeng510/xhs-workstation/blob/main/docs/import-1688.md" target="_blank" rel="noreferrer">docs/import-1688.md</a>（D-13 变更对齐）。</p>
     </div>
 
     <div class="card">

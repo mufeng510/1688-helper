@@ -117,7 +117,7 @@ export const renderSku = async (container: HTMLElement): Promise<void> => {
           <thead><tr><th>商品</th><th>状态</th><th>最近扫描</th><th>库存 SKU 数</th><th>连续失败</th><th>通知</th><th>操作</th></tr></thead>
           <tbody>
             ${products.map((p) => `<tr data-row="${esc(p.id)}">
-              <td><div class="row"><img class="img-thumb" src="${esc(p.image ?? '')}" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'" /><div><div>${esc(p.title)}</div><div class="hint mono">${esc(p.offerId)}</div></div></div></td>
+              <td><div class="row"><img class="img-thumb" src="${esc(p.image ?? '')}" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'" /><div><div><a class="sku-name-link" href="${esc(p.url)}" target="_blank" rel="noreferrer" title="在新标签页打开商品详情页">${esc(p.title)}</a></div><div class="hint mono">${esc(p.offerId)}</div></div></div></td>
               <td>${p.status === 'active' ? '<span class="badge badge--ok">监控中</span>' : `<span class="badge badge--warn">${p.autoPaused ? '自动暂停' : '已暂停'}</span>`}</td>
               <td>${fmtTime(p.lastScanAt)}</td>
               <td>${p.lastValidSkuCount ?? '—'}</td>

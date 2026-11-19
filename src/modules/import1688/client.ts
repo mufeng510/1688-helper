@@ -39,9 +39,10 @@ const mapHttpError = (status: number, detail: string): Import1688Error => {
     case 400:
       return new Import1688Error(`参数错误：${detail}`, 'http', status);
     case 401:
-      return new Import1688Error('API Token 无效或已撤销，请到「管理页 → 系统设置 → 工作台」更新 Token', 'http', status);
+      // 带上工作台原话：文档区分「未登录」（没收到 Authorization）与「Token 无效或已撤销」（收到了但不被接受）
+      return new Import1688Error(`API Token 无效或已撤销：${detail}（请到「管理页 → 系统设置 → 工作台」更新 Token）`, 'http', status);
     case 403:
-      return new Import1688Error('Token 权限不足（需要 manage 权限）', 'http', status);
+      return new Import1688Error(`Token 权限不足（需要 manage 权限）：${detail}`, 'http', status);
     case 413:
       return new Import1688Error('页面数据超过 8MB 上限，无法导入', 'http', status);
     case 422:
@@ -146,6 +147,9 @@ export interface HealthResult {
   message: string;
 }
 
+/** by-offer 探测用的合法格式 dummy id（6–15 位数字，只读，不触发任何写操作） */
+const PROBE_OFFER_ID = '123456';
+
 export const checkHealth = async (baseUrl: string): Promise<HealthResult> => {
   let normalized: string;
   try {
@@ -170,4 +174,52 @@ export const checkHealth = async (baseUrl: string): Promise<HealthResult> => {
   } finally {
     clearTimeout(timer);
   }
+};
+
+/**
+ * 设置页「测试连接」用的完整检查：
+ * 1) /api/health（无需鉴权）验证工作台可达；
+ * 2) 若有 Token，再用 by-offer 只读探测验证 Token 是否被工作台接受。
+ * 健康检查不带 Token，仅凭它无法判断 Token 是否有效——旧实现误导用户以为「测试成功=Token 可用」。
+ */
+export const checkConnection = async (baseUrl: string, token?: string): Promise<HealthResult> => {
+  const health = await checkHealth(baseUrl);
+  if (!health.ok) return { ok: false, message: `健康检查失败：${health.message}` };
+  if (!token) {
+    return { ok: false, message: '工作台可达，但尚未设置 API Token——导入会被工作台拒绝（401）' };
+  }
+  let normalized: string;
+  try {
+    normalized = normalizeBaseUrl(baseUrl);
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  let res: Response;
+  try {
+    res = await fetch(`${normalized}/api/products/import/1688/by-offer/${PROBE_OFFER_ID}`, {
+      method: 'GET',
+      headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+      credentials: 'omit',
+      signal: controller.signal,
+    });
+  } catch (err) {
+    const aborted = err instanceof DOMException && err.name === 'AbortError';
+    return { ok: false, message: aborted ? 'Token 校验超时（工作台 /api/health 正常，但 by-offer 请求超时）' : 'Token 校验失败：无法连接（工作台 /api/health 正常）' };
+  } finally {
+    clearTimeout(timer);
+  }
+  if (res.ok) return { ok: true, message: '连接正常，Token 有效（可导入）' };
+  const detail = await readDetail(res);
+  if (res.status === 401) {
+    return { ok: false, message: `工作台可达，但 Token 无效或已撤销（工作台：${detail}）。请到「管理页 → 系统设置 → 工作台」更新 Token` };
+  }
+  if (res.status === 403) {
+    return { ok: false, message: `工作台可达，但 Token 权限不足（需要 manage 权限）：${detail}` };
+  }
+  if (res.status === 404) {
+    return { ok: true, message: '工作台可达（/api/health 通过）；当前工作台版本无 by-offer 接口，无法验证 Token' };
+  }
+  return { ok: false, message: `工作台可达，但 Token 校验失败（HTTP ${res.status}：${detail}）` };
 };
