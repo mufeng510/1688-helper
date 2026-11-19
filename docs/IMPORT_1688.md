@@ -2,7 +2,9 @@
 
 > 契约来源：`xhs-workstation/docs/extension-1688-import.md`（需求）与 `xhs-workstation/docs/api-reference.md`（API）。
 > 工作台侧实现已交付并对应 `docs/import-1688.md` D-13。扩展侧本文件记录实现与验证状态。
-> **2026-11-15 状态：端到端真实验证通过（调试实例 127.0.0.1:8081，可 `docker compose -f /tmp/opencode/ext-debug-compose.yaml down -v` 整体清空）。后端 API 契约（health/401/400/422/502 回滚/媒体落盘与鉴权）与扩展 UI 全链路（设置页 → 授权域名 → FAB → 预览卡片 → 确认导入 → /products/<id> 图片本地化）均已实测。详见下文「端到端验证」与「未验证 / 待办」。**
+> **2026-11-15 状态：端到端真实验证通过（调试实例 127.0.0.1:8081，可 `docker compose -f /tmp/opencode/ext-debug-compose.yaml down -v` 整体清空）。后端 API 契约（health/401/400/422/502 回滚/媒体落盘与鉴权）与扩展 UI 全链路（设置页 → 授权域名 → 弹窗「📥 导入 1688」→ 预览卡片 → 确认导入 → /products/<id> 图片本地化）均已实测（2026-11-19 起 FAB 入口已移除，仅弹窗按钮触发）。详见下文「端到端验证」与「未验证 / 待办」。**
+
+> **2026-11-19 变更**：移除页面「📥 导入工作台」悬浮按钮与 manifest `content_scripts` 声明；导入改为仅在 popup 点「📥 导入 1688」时按需注入，再经 runtime message 弹出同一张确认卡（卡片逻辑/采集/入库链路零改动）。Edge 该扩展的站点授权会被重置导致声明式注入不可靠，按需注入是唯一稳定路径。
 
 ## 模块划分
 
@@ -13,10 +15,10 @@
   - `client.ts`：SW 侧 fetch——`ingest`/`executeImport`/`checkHealth`；`credentials:'omit'`；错误映射（400/401/403/413/422→detail 直显/502→整体回滚提示/503）；错误信息绝不含 Token；401/403 标记 `authRequired`。
   - `collect.ts`：SW 中 `chrome.scripting.executeScript({ world: 'MAIN' })` 读 `window.context`（优先，JSON ≤8MB）→ 退回 `document.documentElement.outerHTML`；`offer_id` 从 href 正则提取。
   - `service.ts`：编排 `previewImport`（采集→ingest→预览）与 `executeImportRequest`（校验→execute）。
-- `src/pages/inject/import-1688.ts`：content script（隔离世界），**classic script、自包含**（见下）。Shadow DOM 内：📥 悬浮按钮 + 预览确认卡片（名称可编辑、只读信息行、资料区块勾选/编辑/删除/全选/全不选/恢复默认、主图网格默认全选、详情图网格默认不选、图片失败占位不阻塞导入）+ toast（401/403 给「打开扩展设置页」按钮；成功后给「打开工作台」按钮 → `import1688.openProduct` → `/products/<id>`）。所有动态内容走 textContent/DOM API（防 XSS）。
+- `src/pages/inject/import-1688.ts`：隔离世界注入脚本（**classic script、自包含**；非 manifest content_scripts，仅在 popup「📥 导入 1688」按钮点击时按需 `chrome.scripting.executeScript` 注入，并经 `runtime.onMessage('import1688.openFromPopup')` 触发）。Shadow DOM 内：预览确认卡片（名称可编辑、只读信息行、资料区块勾选/编辑/删除/全选/全不选/恢复默认、主图网格默认全选、详情图网格默认不选、图片失败占位不阻塞导入）+ toast（401/403 给「打开扩展设置页」按钮；成功后给「打开工作台」按钮 → `import1688.openProduct` → `/products/<id>`）。所有动态内容走 textContent/DOM API（防 XSS）。
 - `src/background/router.ts`：消息 `import1688.preview|execute|testConnection|openProduct|openSettings|openDoc`（`openDoc` 打开工作台仓库 docs/import-1688.md）。
 - `src/pages/manage/views/settings.ts`：工作台卡片（Base URL、Token password 型、只显未 4 位、清除按钮、授权工作台域名、连接测试 → `GET /api/health`；混合内容/https 帮助文案）。
-- manifest：新增 `content_scripts`（`*://detail.1688.com/offer/*.html`、`*://m.1688.com/offer/*.html`，document_idle）；`permissions` 不变（storage/alarms/scripting/notifications）；新增 host 权限走 `optional_host_permissions` + 设置页点击授权（`chrome.permissions.request`，与 Webhook 域名授权同模式）。
+- manifest：最初新增 `content_scripts`（`*://detail.1688.com/offer/*.html`、`*://m.1688.com/offer/*.html`，document_idle）；**2026-11-19 起移除**（声明式注入在 Edge 上站点授权会被重置，不可靠；改为 popup 按需注入）；`permissions` 不变（storage/alarms/scripting/notifications）；额外 host 权限走 `optional_host_permissions` + 设置页点击授权（`chrome.permissions.request`，与 Webhook 域名授权同模式）。
 
 ## 关键构建细节
 
@@ -75,7 +77,7 @@ MV3 content_scripts 是 classic script，不能引用 vite 代码分割的 ESM c
 
 **扩展侧行为（已实现，未在真实页面点按验证）**：
 
-- FAB 点开（预览成功后）SW 顺带调 by-offer：已存在 → 卡片顶部蓝色「工作台已有该商品 id=N · 更新于…」横幅 + 两个单选「更新已有商品（默认，推荐）/ 仍然新建」；按钮文案随选项为「确认更新 / 确认导入」。
+- 确认卡打开（预览成功后）SW 顺带调 by-offer：已存在 → 卡片顶部蓝色「工作台已有该商品 id=N · 更新于…」横幅 + 两个单选「更新已有商品（默认，推荐）/ 仍然新建」；按钮文案随选项为「确认更新 / 确认导入」。
 - 未存在 → 横幅隐藏，按钮「确认导入」，请求 `mode=create`。
 - 检查失败 → 横幅显示「未能检查…（原因）」，不阻断，请求仍为 `mode=create`（由工作台 409 兜底）。
 - 确认后工作台返回 409 → 顶部红色提示 + 「关闭窗口重开后选择『更新已有商品』即可」。
@@ -96,7 +98,7 @@ MV3 content_scripts 是 classic script，不能引用 vite 代码分割的 ESM c
 1. 503 磁盘不足路径（需磁盘压力场景，未复现）。
 2. Token 撤销后 401 → 扩展内「打开扩展设置页」引导 toast 的真实点按演练（后端 401 与扩展错误映射已就绪，前端未点按验证）。
 3. 局域网 http 工作台（如 `http://192.0.2.10:8080`）：混合内容 / 私有网络访问策略未实测（127.0.0.1 回环已通）。
-4. `m.1688.com` 移动端 offer 页注入未实测（content_scripts 已匹配该 pattern）。
+4. `m.1688.com` 移动端 offer 页未实测（当前按需注入仅匹配 `/offer/\d{6,15}\.html` 路径，移动站若路由不同需另行确认）。
 5. 详情图（默认不选）导入路径未实测。
 6. 既有能力回归：SKU 扫描 / 理赔模拟 / 通知 / popup「添加监控」自 v0.2.0 起未逐项重跑。
 7. 测试商品 id 4/5/6（offer 991485897552）保留在调试实例内；用户可在工作台删除，或用 compose `down -v` 整体清空。

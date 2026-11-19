@@ -24,18 +24,6 @@
     "service_worker": "background/sw.js",
     "type": "module"
   },
-  "content_scripts": [
-    {
-      "matches": [
-        "*://detail.1688.com/offer/*.html",
-        "*://m.1688.com/offer/*.html"
-      ],
-      "js": [
-        "pages/inject/import-1688.js"
-      ],
-      "run_at": "document_idle"
-    }
-  ],
   "permissions": [
     "storage",
     "alarms",

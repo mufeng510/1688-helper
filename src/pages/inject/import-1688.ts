@@ -1,7 +1,7 @@
-// 1688 商品详情页注入脚本：「📥 导入工作台」悬浮按钮 + 预览确认卡片。
+// 1688 商品详情页按需注入脚本：由 popup「📥 导入 1688」按钮触发，展示预览确认卡片。
 // 运行在隔离世界；所有 HTTP 请求走 background（runtime message），本脚本不直接调 API。
 // 页面数据一律通过 textContent / DOM API 渲染，绝不拼接 innerHTML（防 XSS）。
-// 只在 offer 详情页注入（manifest matches 已限定，此处再兜底校验一次）。
+// 非 offer 详情页不注入（兜底校验见下方；旧版 manifest 的 content_scripts 已移除，现仅按需注入）。
 import { buildExecuteRequest, defaultCardState, normalizeImageUrl } from '@/modules/import1688/payload';
 import type { CardState } from '@/modules/import1688/payload';
 import type { Import1688Preview, ExecuteResponse, Import1688ExistingProduct } from '@/modules/import1688/types';
@@ -27,14 +27,6 @@ import type { Import1688Preview, ExecuteResponse, Import1688ExistingProduct } fr
 <style>
   :host { all: initial; }
   * { box-sizing: border-box; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
-  #fab {
-    position: fixed; right: 20px; bottom: 120px; z-index: 2147483646;
-    padding: 10px 16px; border: none; border-radius: 999px; cursor: pointer;
-    background: #ff6a00; color: #fff; font-size: 13px; font-weight: 600;
-    box-shadow: 0 4px 16px rgba(255, 106, 0, .45); transition: transform .15s, box-shadow .15s;
-  }
-  #fab:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(255, 106, 0, .55); }
-  #fab:disabled { background: #bbb; box-shadow: none; cursor: wait; }
   #overlay {
     position: fixed; inset: 0; z-index: 2147483647; background: rgba(0, 0, 0, .45);
     display: flex; align-items: center; justify-content: center; padding: 16px;
@@ -103,7 +95,6 @@ import type { Import1688Preview, ExecuteResponse, Import1688ExistingProduct } fr
   #toast button { border: none; background: #ff6a00; color: #fff; border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 12px; white-space: nowrap; }
   .field-label { color: #888; font-size: 11px; }
 </style>
-<button id="fab" title="把本商品导入到小红书多账号内容生产工作台">📥 导入工作台</button>
 <div id="toast" hidden><span id="toastText"></span><button id="toastAction" hidden></button></div>
 <div id="overlay" hidden>
   <div id="card" role="dialog" aria-label="导入工作台确认">
@@ -160,7 +151,6 @@ import type { Import1688Preview, ExecuteResponse, Import1688ExistingProduct } fr
   document.body.appendChild(host);
 
   const $ = <T extends HTMLElement = HTMLElement>(sel: string): T => shadow.querySelector<T>(sel)!;
-  const fab = $<HTMLButtonElement>('#fab');
   const overlay = $('#overlay');
   const toastEl = $('#toast');
   const toastText = $('#toastText');
@@ -227,7 +217,7 @@ import type { Import1688Preview, ExecuteResponse, Import1688ExistingProduct } fr
     errBox.hidden = true;
   };
 
-  // ---------- 重复导入检查结果（FAB 点击时由 SW 顺带查询工作台） ----------
+  // ---------- 重复导入检查结果（弹卡时由 SW 顺带查询工作台） ----------
   const renderModeBox = (): void => {
     if (existing) {
       modeBox.hidden = false;
@@ -512,14 +502,22 @@ import type { Import1688Preview, ExecuteResponse, Import1688ExistingProduct } fr
     })();
   });
 
-  fab.addEventListener('click', () => {
-    if (fab.disabled) return;
-    fab.disabled = true;
-    fab.textContent = '⏳ 读取中…';
+  // ---------- 打开预览确认卡（由 popup「📥 导入 1688」按钮经 runtime message 触发） ----------
+  let previewing = false;
+  const startPreview = (): void => {
+    if (previewing) return; // 防重复点击
+    previewing = true;
     void (async () => {
-      const resp = await send<{ preview: Import1688Preview; strategy: string; existing?: Import1688ExistingProduct | null; existingError?: string }>({ type: 'import1688.preview' });
-      fab.disabled = false;
-      fab.textContent = '📥 导入工作台';
+      let resp: MsgResp<{ preview: Import1688Preview; strategy: string; existing?: Import1688ExistingProduct | null; existingError?: string }>;
+      try {
+        resp = await send({ type: 'import1688.preview' });
+      } catch {
+        // SW 无响应（扩展重载后旧页面里的脚本已失效，或页面上下文异常）
+        previewing = false;
+        showToast('无法连接扩展后台：请刷新页面后重试');
+        return;
+      }
+      previewing = false;
       if (resp.ok && resp.data) {
         preview = resp.data.preview;
         existing = resp.data.existing ?? null;
@@ -540,5 +538,9 @@ import type { Import1688Preview, ExecuteResponse, Import1688ExistingProduct } fr
         showToast(message);
       }
     })();
+  };
+
+  chrome.runtime.onMessage.addListener((msg: unknown) => {
+    if ((msg as { type?: string } | null)?.type === 'import1688.openFromPopup') startPreview();
   });
 })();
